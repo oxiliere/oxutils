@@ -1,0 +1,33 @@
+[project]
+name = "oxutils"
+version = "0.1.0"
+description = "Utilities for Oxiliere Services"
+readme = "README.md"
+authors = [
+    { name = "Edimedia Mutoke", email = "eddycondor07@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.41.5",
+    "celery>=5.5.3",
+    "django-auditlog>=3.3.0",
+    "django-celery-results>=2.6.0",
+    "django-cid>=3.0",
+    "django-extensions>=4.1",
+    "django-ninja>=1.5.0",
+    "django-ninja-extra>=0.30.6",
+    "django-storages[s3]>=1.14.6",
+    "django-structlog[celery]>=10.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.workspace]
+members = [
+    ".",
+]
+
+[dependency-groups]
+dev = []
