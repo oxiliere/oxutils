@@ -34,6 +34,7 @@ class ExceptionCode:
     RATE_LIMIT_EXCEEDED = 'rate_limit_exceeded'
     SERVICE_UNAVAILABLE = 'service_unavailable'
     INVALID_TOKEN = 'invalid_token'
+    INVALID_ORGANIZATION_TOKEN = "invalid_org_token"
     EXPIRED_TOKEN = 'expired_token'
     INVALID_CREDENTIALS = 'invalid_credentials'
     ACCOUNT_DISABLED = 'account_disabled'

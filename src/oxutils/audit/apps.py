@@ -5,10 +5,8 @@ from django.utils.translation import gettext_lazy as _
 
 class OxutilsConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'oxutils'
-    verbose_name = _("Oxiliere Utilities")
+    name = 'oxutils_export'
+    verbose_name = _("Oxutils Export")
 
     def ready(self):
-        import oxutils.logger.receivers
-        
         return super().ready()

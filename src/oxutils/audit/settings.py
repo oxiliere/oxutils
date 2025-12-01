@@ -14,4 +14,6 @@ AUDITLOG_EXCLUDE_TRACKING_FIELDS = (
 )
 
 CID_GENERATE = False
+
 AUDITLOG_CID_GETTER = "cid.locals.get_cid"
+AUDITLOG_LOGENTRY_MODEL =  "auditlog.LogEntry"

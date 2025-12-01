@@ -1,7 +1,7 @@
 from logging import Logger
 from django.utils.translation import gettext_lazy as _
-from django.conf import settings
 from auditlog.signals import accessed
+from oxutils.settings import oxi_settings
 
 
 
@@ -19,9 +19,7 @@ class BaseService:
 
 
     def object_accessed(self, instance_class, instance):
-        LOG_ACCESS = getattr(settings, 'OXI_TRACK_OBJECT_ACCESS', False)
-
-        if LOG_ACCESS:
+        if oxi_settings.log_access:
             accessed(instance_class, instance)
 
     def inner_exception_handler(self, exc: Exception, logger: Logger):
