@@ -1,0 +1,1 @@
+CELERY_CACHE_BACKEND = 'default'
