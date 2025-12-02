@@ -1,12 +1,27 @@
 [project]
 name = "oxutils"
 version = "0.1.0"
-description = "Utilities for Oxiliere Services"
+description = "Production-ready utilities for Django applications in the Oxiliere ecosystem"
 readme = "README.md"
+license = "Apache-2.0"
 authors = [
     { name = "Edimedia Mutoke", email = "eddycondor07@gmail.com" }
 ]
 requires-python = ">=3.11"
+keywords = ["django", "utilities", "jwt", "s3", "audit", "logging", "celery", "structlog"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Framework :: Django :: 5.0",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+]
 dependencies = [
     "boto3>=1.41.5",
     "celery>=5.5.3",
@@ -21,7 +36,16 @@ dependencies = [
     "django-structlog[celery]>=10.0.0",
     "jwcrypto>=1.5.6",
     "pydantic-settings>=2.12.0",
+    "pyjwt>=2.10.1",
+    "requests>=2.32.5",
 ]
+
+[project.urls]
+Homepage = "https://github.com/oxiliere/oxutils"
+Documentation = "https://github.com/oxiliere/oxutils/tree/main/docs"
+Repository = "https://github.com/oxiliere/oxutils"
+Issues = "https://github.com/oxiliere/oxutils/issues"
+Changelog = "https://github.com/oxiliere/oxutils/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]
@@ -39,4 +63,38 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
     "coverage>=7.4.0",
+    "pillow>=12.0.0",
+    "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --ds=tests.settings"
+testpaths = ["tests"]

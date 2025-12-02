@@ -2,8 +2,7 @@
 Tests for OxUtils utility functions.
 """
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from io import BytesIO
+from unittest.mock import Mock, patch
 from ninja_extra.exceptions import ValidationError
 from oxutils.functions import (
     get_absolute_url,
@@ -68,9 +67,11 @@ class TestRequestIsBound:
         
         assert request_is_bound(request) is True
     
-    def test_request_is_bound_with_files(self, request_factory):
+    def test_request_is_bound_with_files(self):
         """Test request_is_bound with FILES."""
-        request = request_factory.post('/')
+        request = Mock()
+        request.method = 'POST'
+        request.POST = {}
         request.FILES = {'file': 'test'}
         
         assert request_is_bound(request) is True
@@ -141,8 +142,10 @@ class TestValidateImage:
         """Test validate_image with valid image."""
         mock_file = self.create_mock_image(size_mb=1)
         
-        with patch('oxutils.functions.Image') as mock_image:
-            mock_image.open.return_value.verify.return_value = None
+        with patch('PIL.Image.open') as mock_open:
+            mock_img = Mock()
+            mock_img.verify.return_value = None
+            mock_open.return_value = mock_img
             
             # Should not raise
             validate_image(mock_file, size=2)
@@ -184,8 +187,10 @@ class TestValidateImage:
             ('image/webp', 'test.webp'),
         ]
         
-        with patch('oxutils.functions.Image') as mock_image:
-            mock_image.open.return_value.verify.return_value = None
+        with patch('PIL.Image.open') as mock_open:
+            mock_img = Mock()
+            mock_img.verify.return_value = None
+            mock_open.return_value = mock_img
             
             for content_type, filename in allowed_types:
                 mock_file = self.create_mock_image(
@@ -200,8 +205,8 @@ class TestValidateImage:
         """Test validate_image with corrupted image file."""
         mock_file = self.create_mock_image(size_mb=1)
         
-        with patch('oxutils.functions.Image') as mock_image:
-            mock_image.open.side_effect = Exception("Corrupted image")
+        with patch('PIL.Image.open') as mock_open:
+            mock_open.side_effect = Exception("Corrupted image")
             
             with pytest.raises(ValidationError, match="pas une image valide"):
                 validate_image(mock_file, size=2)
@@ -215,6 +220,8 @@ class TestValidateImage:
             validate_image(mock_file, size=2)
         
         # Should succeed with 5MB limit
-        with patch('oxutils.functions.Image') as mock_image:
-            mock_image.open.return_value.verify.return_value = None
+        with patch('PIL.Image.open') as mock_open:
+            mock_img = Mock()
+            mock_img.verify.return_value = None
+            mock_open.return_value = mock_img
             validate_image(mock_file, size=5)

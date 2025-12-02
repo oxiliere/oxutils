@@ -14,112 +14,112 @@ class InvoiceMixin(UUIDPrimaryKeyMixin,TimestampMixin, UserTrackingMixin):
     
     # Invoice details
     invoice_number = models.CharField(
-        _('numéro de facture'),
+        _('invoice number'),
         max_length=50,
         unique=True,
-        help_text=_('Numéro unique de la facture')
+        help_text=_('Unique invoice number')
     )
     
     status = models.CharField(
-        _('statut'),
+        _('status'),
         max_length=20,
         choices=[(status.value, status.value) for status in InvoiceStatusEnum],
         default=InvoiceStatusEnum.DRAFT,
-        help_text=_('Statut de la facture')
+        help_text=_('Invoice status')
     )
     
     # Amounts
     subtotal = models.DecimalField(
-        _('sous-total'),
+        _('subtotal'),
         max_digits=10,
         decimal_places=2,
-        help_text=_('Montant hors taxes')
+        help_text=_('Amount excluding taxes')
     )
     
     tax_rate = models.DecimalField(
-        _('taux de taxe'),
+        _('tax rate'),
         max_digits=5,
         decimal_places=2,
         default=0.00,
-        help_text=_('Taux de taxe en pourcentage')
+        help_text=_('Tax rate as percentage')
     )
     
     tax_amount = models.DecimalField(
-        _('montant de la taxe'),
+        _('tax amount'),
         max_digits=10,
         decimal_places=2,
         default=0.00,
-        help_text=_('Montant de la taxe')
+        help_text=_('Tax amount')
     )
     
     total = models.DecimalField(
         _('total'),
         max_digits=10,
         decimal_places=2,
-        help_text=_('Montant total TTC')
+        help_text=_('Total amount including tax')
     )
     
     currency = models.CharField(
-        _('devise'),
+        _('currency'),
         max_length=3,
         default='USD',
-        help_text=_('Code devise ISO (CDF, USD, etc.)')
+        help_text=_('ISO currency code (CDF, USD, etc.)')
     )
     
     # Dates
     issue_date = models.DateField(
-        _('date d\'émission'),
-        help_text=_('Date d\'émission de la facture')
+        _('issue date'),
+        help_text=_('Invoice issue date')
     )
     
     due_date = models.DateField(
-        _('date d\'échéance'),
-        help_text=_('Date limite de paiement')
+        _('due date'),
+        help_text=_('Payment due date')
     )
     
     paid_date = models.DateTimeField(
-        _('date de paiement'),
+        _('payment date'),
         null=True,
         blank=True,
-        help_text=_('Date et heure du paiement')
+        help_text=_('Payment date and time')
     )
     
     # Billing period
     period_start = models.DateField(
-        _('début de période'),
-        help_text=_('Date de début de la période facturée')
+        _('period start'),
+        help_text=_('Billing period start date')
     )
     
     period_end = models.DateField(
-        _('fin de période'),
-        help_text=_('Date de fin de la période facturée')
+        _('period end'),
+        help_text=_('Billing period end date')
     )
     
     # Additional info
     description = models.TextField(
         _('description'),
         blank=True,
-        help_text=_('Description détaillée de la facture')
+        help_text=_('Detailed invoice description')
     )
     
     notes = models.TextField(
         _('notes'),
         blank=True,
-        help_text=_('Notes internes sur la facture')
+        help_text=_('Internal notes about the invoice')
     )
     
     # External payment system reference
     payment_reference = models.CharField(
-        _('référence de paiement'),
+        _('payment reference'),
         max_length=100,
         blank=True,
-        help_text=_('Référence du système de paiement externe (Stripe, etc.)')
+        help_text=_('External payment system reference (Stripe, etc.)')
     )
     
     class Meta:
         abstract = True
-        verbose_name = _('Facture')
-        verbose_name_plural = _('Factures')
+        verbose_name = _('Invoice')
+        verbose_name_plural = _('Invoices')
         ordering = ['-issue_date']
         indexes = [
             models.Index(fields=['status']),
@@ -129,7 +129,7 @@ class InvoiceMixin(UUIDPrimaryKeyMixin,TimestampMixin, UserTrackingMixin):
         ]
     
     def __str__(self):
-        return f"Facture {self.invoice_number}"
+        return f"Invoice {self.invoice_number}"
     
     def save(self, *args, **kwargs):
         if self._state.adding:
@@ -203,7 +203,7 @@ class InvoiceMixin(UUIDPrimaryKeyMixin,TimestampMixin, UserTrackingMixin):
         self.status = InvoiceStatusEnum.CANCELLED
 
         if reason:
-            self.notes = f"{invoice.notes}\nAnnulé: {reason}".strip()
+            self.notes = f"{invoice.notes}\nCancelled: {reason}".strip()
 
         self.save()
 
@@ -216,7 +216,7 @@ class InvoiceMixin(UUIDPrimaryKeyMixin,TimestampMixin, UserTrackingMixin):
         self.status = InvoiceStatusEnum.REFUNDED
         
         if reason:
-            self.notes = f"{invoice.notes}\nRemboursé: {reason}".strip()
+            self.notes = f"{invoice.notes}\nRefunded: {reason}".strip()
 
         self.save()
     
@@ -237,52 +237,52 @@ class InvoiceItemMixin(UUIDPrimaryKeyMixin, TimestampMixin):
     
     # Item details
     name = models.CharField(
-        _('nom du service'),
+        _('service name'),
         max_length=200,
-        help_text=_('Nom du service ou produit facturé')
+        help_text=_('Name of the billed service or product')
     )
     
     description = models.TextField(
         _('description'),
         blank=True,
-        help_text=_('Description détaillée du service')
+        help_text=_('Detailed service description')
     )
     
     # Pricing
     quantity = models.DecimalField(
-        _('quantité'),
+        _('quantity'),
         max_digits=10,
         decimal_places=2,
         default=Decimal('1.00'),
-        help_text=_('Quantité du service (heures, unités, etc.)')
+        help_text=_('Service quantity (hours, units, etc.)')
     )
     
     unit_price = models.DecimalField(
-        _('prix unitaire'),
+        _('unit price'),
         max_digits=10,
         decimal_places=2,
-        help_text=_('Prix unitaire hors taxes')
+        help_text=_('Unit price excluding taxes')
     )
     
     total_price = models.DecimalField(
-        _('prix total'),
+        _('total price'),
         max_digits=10,
         decimal_places=2,
-        help_text=_('Prix total pour cet élément (quantité × prix unitaire)')
+        help_text=_('Total price for this item (quantity × unit price)')
     )
     
     # Metadata
     metadata = models.JSONField(
-        _('métadonnées'),
+        _('metadata'),
         default=dict,
         blank=True,
-        help_text=_('Données supplémentaires en format JSON')
+        help_text=_('Additional data in JSON format')
     )
     
     class Meta:
         abstract = True
-        verbose_name = _('Élément de facture')
-        verbose_name_plural = _('Éléments de facture')
+        verbose_name = _('Invoice item')
+        verbose_name_plural = _('Invoice items')
         ordering = ['id']
         indexes = [
             models.Index(fields=['name']),
@@ -307,93 +307,93 @@ class RefundRequestMixin(UUIDPrimaryKeyMixin, TimestampMixin, UserTrackingMixin)
     """Abstract model for refund requests"""
     
     REFUND_STATUS_CHOICES = [
-        ('pending', _('En attente')),
-        ('approved', _('Approuvé')),
-        ('rejected', _('Rejeté')),
-        ('processed', _('Traité')),
-        ('cancelled', _('Annulé')),
+        ('pending', _('Pending')),
+        ('approved', _('Approved')),
+        ('rejected', _('Rejected')),
+        ('processed', _('Processed')),
+        ('cancelled', _('Cancelled')),
     ]
     
     REFUND_REASON_CHOICES = [
-        ('duplicate_payment', _('Paiement en double')),
-        ('service_not_received', _('Service non reçu')),
-        ('billing_error', _('Erreur de facturation')),
-        ('cancellation', _('Annulation')),
-        ('technical_issue', _('Problème technique')),
-        ('other', _('Autre')),
+        ('duplicate_payment', _('Duplicate payment')),
+        ('service_not_received', _('Service not received')),
+        ('billing_error', _('Billing error')),
+        ('cancellation', _('Cancellation')),
+        ('technical_issue', _('Technical issue')),
+        ('other', _('Other')),
     ]
     
     # Refund details
     status = models.CharField(
-        _('statut'),
+        _('status'),
         max_length=20,
         choices=REFUND_STATUS_CHOICES,
         default='pending',
-        help_text=_('Statut de la demande de remboursement')
+        help_text=_('Refund request status')
     )
     
     reason = models.CharField(
-        _('raison'),
+        _('reason'),
         max_length=30,
         choices=REFUND_REASON_CHOICES,
-        help_text=_('Raison de la demande de remboursement')
+        help_text=_('Reason for refund request')
     )
     
     description = models.TextField(
         _('description'),
-        help_text=_('Description détaillée de la demande de remboursement')
+        help_text=_('Detailed description of the refund request')
     )
     
     # Amount details
     requested_amount = models.DecimalField(
-        _('montant demandé'),
+        _('requested amount'),
         max_digits=10,
         decimal_places=2,
-        help_text=_('Montant du remboursement demandé')
+        help_text=_('Requested refund amount')
     )
     
     approved_amount = models.DecimalField(
-        _('montant approuvé'),
+        _('approved amount'),
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        help_text=_('Montant du remboursement approuvé')
+        help_text=_('Approved refund amount')
     )
     
     currency = models.CharField(
-        _('devise'),
+        _('currency'),
         max_length=3,
         default='USD',
-        help_text=_('Code devise ISO (CDF, USD, etc.)')
+        help_text=_('ISO currency code (CDF, USD, etc.)')
     )
     
     # Processing details
     processed_date = models.DateTimeField(
-        _('date de traitement'),
+        _('processing date'),
         null=True,
         blank=True,
-        help_text=_('Date et heure du traitement du remboursement')
+        help_text=_('Refund processing date and time')
     )
     
     admin_notes = models.TextField(
-        _('notes administratives'),
+        _('admin notes'),
         blank=True,
-        help_text=_('Notes internes de l\'administrateur')
+        help_text=_('Internal administrator notes')
     )
     
     # External payment system reference
     refund_reference = models.CharField(
-        _('référence de remboursement'),
+        _('refund reference'),
         max_length=100,
         blank=True,
-        help_text=_('Référence du système de paiement externe (Stripe, etc.)')
+        help_text=_('External payment system reference (Stripe, etc.)')
     )
     
     class Meta:
         abstract = True
-        verbose_name = _('Demande de remboursement')
-        verbose_name_plural = _('Demandes de remboursement')
+        verbose_name = _('Refund request')
+        verbose_name_plural = _('Refund requests')
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status']),
@@ -402,7 +402,7 @@ class RefundRequestMixin(UUIDPrimaryKeyMixin, TimestampMixin, UserTrackingMixin)
         ]
     
     def __str__(self):
-        return f"Remboursement {self.requested_amount} {self.currency} - {self.get_status_display()}"
+        return f"Refund {self.requested_amount} {self.currency} - {self.get_status_display()}"
     
     def approve(self, approved_amount=None, admin_notes=""):
         """Approve the refund request"""
@@ -424,7 +424,7 @@ class RefundRequestMixin(UUIDPrimaryKeyMixin, TimestampMixin, UserTrackingMixin)
         from django.utils import timezone
         
         if self.status != 'approved':
-            raise ValueError("Seules les demandes approuvées peuvent être traitées")
+            raise ValueError("Only approved requests can be processed")
         
         self.status = 'processed'
         self.processed_date = timezone.now()
@@ -438,7 +438,7 @@ class RefundRequestMixin(UUIDPrimaryKeyMixin, TimestampMixin, UserTrackingMixin)
     def cancel(self, admin_notes=""):
         """Cancel the refund request"""
         if self.status == 'processed':
-            raise ValueError("Impossible d'annuler une demande déjà traitée")
+            raise ValueError("Cannot cancel an already processed request")
         
         self.status = 'cancelled'
         if admin_notes:

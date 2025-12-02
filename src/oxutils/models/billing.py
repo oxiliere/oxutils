@@ -9,83 +9,83 @@ class BillingMixin(BaseModelMixin):
     """Billing information for individual users"""
     
     PAYMENT_METHOD_CHOICES = [
-        ('card', _('Carte bancaire')),
+        ('card', _('Credit card')),
         ('paypal', _('PayPal')),
-        ('bank_transfer', _('Virement bancaire')),
+        ('bank_transfer', _('Bank transfer')),
         ('stripe', _('Stripe')),
     ]
     
     CURRENCY_CHOICES = [
-        ('USD', _('Dollar américain')),
-        ('CDF', _('Franc congolais')),
+        ('USD', _('US Dollar')),
+        ('CDF', _('Congolese Franc')),
     ]
     
     # Billing address
     billing_name = models.CharField(
-        _('nom de facturation'),
+        _('billing name'),
         max_length=100,
         blank=True,
-        help_text=_('Nom complet pour la facturation')
+        help_text=_('Full name for billing')
     )
     
     billing_email = models.EmailField(
-        _('email de facturation'),
+        _('billing email'),
         blank=True,
-        help_text=_('Email pour recevoir les factures')
+        help_text=_('Email to receive invoices')
     )
     
     company_name = models.CharField(
-        _('nom de l\'entreprise'),
+        _('company name'),
         max_length=100,
         blank=True,
         null=True,
-        help_text=_('Nom de l\'entreprise (optionnel)')
+        help_text=_('Company name (optional)')
     )
     
     tax_number = models.CharField(
-        _('numéro de TVA'),
+        _('VAT number'),
         max_length=50,
         blank=True,
         null=True,
-        help_text=_('Numéro de TVA ou d\'identification fiscale')
+        help_text=_('VAT or tax identification number')
     )
     
     # Address
     street_address = models.CharField(
-        _('adresse'),
+        _('address'),
         max_length=255,
         blank=True
     )
     
     city = models.CharField(
-        _('ville'),
+        _('city'),
         max_length=100,
         blank=True
     )
     
     postal_code = models.CharField(
-        _('code postal'),
+        _('postal code'),
         max_length=20,
         blank=True
     )
     
     country = models.CharField(
-        _('pays'),
+        _('country'),
         max_length=2,
         blank=True,
-        help_text=_('Code pays ISO 3166-1 alpha-2')
+        help_text=_('ISO 3166-1 alpha-2 country code')
     )
     
     # Payment preferences
     preferred_currency = models.CharField(
-        _('devise préférée'),
+        _('preferred currency'),
         max_length=3,
         choices=CURRENCY_CHOICES,
         default='USD'
     )
     
     preferred_payment_method = models.CharField(
-        _('méthode de paiement préférée'),
+        _('preferred payment method'),
         max_length=20,
         choices=PAYMENT_METHOD_CHOICES,
         default='card'
@@ -93,31 +93,31 @@ class BillingMixin(BaseModelMixin):
     
     # Stripe customer info
     stripe_customer_id = models.CharField(
-        _('ID client Stripe'),
+        _('Stripe customer ID'),
         max_length=100,
         blank=True,
         null=True,
-        help_text=_('Identifiant client Stripe')
+        help_text=_('Stripe customer identifier')
     )
     
     # Invoice preferences
     auto_pay = models.BooleanField(
-        _('paiement automatique'),
+        _('automatic payment'),
         default=False,
-        help_text=_('Activer le paiement automatique des factures')
+        help_text=_('Enable automatic invoice payment')
     )
     
     invoice_notes = models.TextField(
-        _('notes de facturation'),
+        _('billing notes'),
         blank=True,
         max_length=500,
-        help_text=_('Notes personnalisées à inclure sur les factures')
+        help_text=_('Custom notes to include on invoices')
     )
     
     class Meta:
         abstract = True
-        verbose_name = _('Informations de facturation')
-        verbose_name_plural = _('Informations de facturation')
+        verbose_name = _('Billing information')
+        verbose_name_plural = _('Billing information')
     
     
     @property

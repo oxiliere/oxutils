@@ -2,16 +2,13 @@
 Tests for OxUtils mixins module.
 """
 import pytest
-from datetime import datetime
-from unittest.mock import Mock, patch
 from django.db import models
-from django.contrib.auth import get_user_model
 
 
 # Import mixins
 try:
     from oxutils.models.base import (
-        UUIDMixin,
+        UUIDPrimaryKeyMixin,
         TimestampMixin,
         BaseModelMixin,
         NameMixin,
@@ -23,20 +20,20 @@ except ImportError:
 
 
 @pytest.mark.skipif(not MODELS_AVAILABLE, reason="Models not available")
-class TestUUIDMixin:
-    """Test UUIDMixin."""
+class TestUUIDPrimaryKeyMixin:
+    """Test UUIDPrimaryKeyMixin."""
     
     def test_uuid_mixin_has_uuid_field(self):
-        """Test UUIDMixin has UUID field."""
-        class TestModel(UUIDMixin):
+        """Test UUIDPrimaryKeyMixin has UUID field."""
+        class UUIDTestModel(UUIDPrimaryKeyMixin):
             class Meta:
                 app_label = 'test'
         
-        assert hasattr(TestModel, 'id')
+        assert hasattr(UUIDTestModel, 'id')
     
     def test_uuid_mixin_generates_uuid(self):
-        """Test UUIDMixin generates UUID on creation."""
-        class TestModel(UUIDMixin):
+        """Test UUIDPrimaryKeyMixin generates UUID on creation."""
+        class UUIDGenerateTestModel(UUIDPrimaryKeyMixin):
             class Meta:
                 app_label = 'test'
         
@@ -50,12 +47,12 @@ class TestTimestampMixin:
     
     def test_timestamp_mixin_has_fields(self):
         """Test TimestampMixin has timestamp fields."""
-        class TestModel(TimestampMixin):
+        class TimestampTestModel(TimestampMixin):
             class Meta:
                 app_label = 'test'
         
-        assert hasattr(TestModel, 'created_at')
-        assert hasattr(TestModel, 'updated_at')
+        assert hasattr(TimestampTestModel, 'created_at')
+        assert hasattr(TimestampTestModel, 'updated_at')
 
 
 @pytest.mark.skipif(not MODELS_AVAILABLE, reason="Models not available")
@@ -64,19 +61,19 @@ class TestBaseModelMixin:
     
     def test_base_model_mixin_has_all_fields(self):
         """Test BaseModelMixin has all required fields."""
-        class TestModel(BaseModelMixin):
+        class BaseModelTestModel(BaseModelMixin):
             class Meta:
                 app_label = 'test'
         
         # Should have UUID
-        assert hasattr(TestModel, 'id')
+        assert hasattr(BaseModelTestModel, 'id')
         
         # Should have timestamps
-        assert hasattr(TestModel, 'created_at')
-        assert hasattr(TestModel, 'updated_at')
+        assert hasattr(BaseModelTestModel, 'created_at')
+        assert hasattr(BaseModelTestModel, 'updated_at')
         
         # Should have is_active
-        assert hasattr(TestModel, 'is_active')
+        assert hasattr(BaseModelTestModel, 'is_active')
 
 
 @pytest.mark.skipif(not MODELS_AVAILABLE, reason="Models not available")
@@ -85,12 +82,12 @@ class TestNameMixin:
     
     def test_name_mixin_has_fields(self):
         """Test NameMixin has name and description fields."""
-        class TestModel(NameMixin):
+        class NameMixinTestModel(NameMixin):
             class Meta:
                 app_label = 'test'
         
-        assert hasattr(TestModel, 'name')
-        assert hasattr(TestModel, 'description')
+        assert hasattr(NameMixinTestModel, 'name')
+        assert hasattr(NameMixinTestModel, 'description')
 
 
 @pytest.mark.skipif(not MODELS_AVAILABLE, reason="Models not available")
@@ -99,12 +96,12 @@ class TestUserTrackingMixin:
     
     def test_user_tracking_mixin_has_fields(self):
         """Test UserTrackingMixin has user tracking fields."""
-        class TestModel(UserTrackingMixin):
+        class UserTrackingTestModel(UserTrackingMixin):
             class Meta:
                 app_label = 'test'
         
-        assert hasattr(TestModel, 'created_by')
-        assert hasattr(TestModel, 'updated_by')
+        assert hasattr(UserTrackingTestModel, 'created_by')
+        assert hasattr(UserTrackingTestModel, 'updated_by')
 
 
 class TestDetailDictMixin:
@@ -115,25 +112,33 @@ class TestDetailDictMixin:
         from oxutils.mixins.base import DetailDictMixin
         
         class TestException(DetailDictMixin, Exception):
-            def __init__(self, detail=None):
-                self.detail = detail
-                super().__init__(detail)
+            default_detail = "Default error"
+            default_code = "default_error"
+            
+            def __init__(self, detail=None, code=None):
+                super().__init__(detail=detail, code=code)
         
         exc = TestException(detail="Test error")
-        assert exc.detail == "Test error"
+        detail_dict = exc.args[0]
+        assert detail_dict["detail"] == "Test error"
+        assert detail_dict["code"] == "default_error"
     
     def test_detail_dict_mixin_with_dict(self):
         """Test DetailDictMixin with dictionary detail."""
         from oxutils.mixins.base import DetailDictMixin
         
         class TestException(DetailDictMixin, Exception):
-            def __init__(self, detail=None):
-                self.detail = detail
-                super().__init__(detail)
+            default_detail = "Default error"
+            default_code = "default_error"
+            
+            def __init__(self, detail=None, code=None):
+                super().__init__(detail=detail, code=code)
         
-        detail = {"field": "error", "code": "test"}
+        detail = {"field": "error", "extra": "info"}
         exc = TestException(detail=detail)
-        assert exc.detail == detail
+        detail_dict = exc.args[0]
+        assert detail_dict["field"] == "error"
+        assert detail_dict["extra"] == "info"
 
 
 class TestBaseService:
@@ -174,80 +179,19 @@ class TestBaseService:
             service.validate_data(None)
 
 
-class TestEnumMixin:
-    """Test EnumMixin."""
-    
-    def test_enum_mixin_choices(self):
-        """Test EnumMixin choices method."""
-        from oxutils.mixins.enums import EnumMixin
-        from enum import Enum
-        
-        class StatusEnum(EnumMixin, Enum):
-            PENDING = 'pending'
-            ACTIVE = 'active'
-            INACTIVE = 'inactive'
-        
-        choices = StatusEnum.choices()
-        
-        assert len(choices) == 3
-        assert ('pending', 'Pending') in choices
-        assert ('active', 'Active') in choices
-    
-    def test_enum_mixin_values(self):
-        """Test EnumMixin values method."""
-        from oxutils.mixins.enums import EnumMixin
-        from enum import Enum
-        
-        class StatusEnum(EnumMixin, Enum):
-            PENDING = 'pending'
-            ACTIVE = 'active'
-        
-        values = StatusEnum.values()
-        
-        assert 'pending' in values
-        assert 'active' in values
-        assert len(values) == 2
-    
-    def test_enum_mixin_labels(self):
-        """Test EnumMixin labels method."""
-        from oxutils.mixins.enums import EnumMixin
-        from enum import Enum
-        
-        class StatusEnum(EnumMixin, Enum):
-            PENDING = 'pending'
-            ACTIVE = 'active'
-        
-        labels = StatusEnum.labels()
-        
-        assert 'Pending' in labels
-        assert 'Active' in labels
 
 
 class TestSchemaMixins:
     """Test schema mixins."""
     
-    def test_timestamp_schema_mixin(self):
-        """Test TimestampSchemaMixin."""
-        from oxutils.mixins.schemas import TimestampSchemaMixin
-        from pydantic import BaseModel
+    def test_response_schema(self):
+        """Test ResponseSchema."""
+        from oxutils.mixins.schemas import ResponseSchema
         
-        class TestSchema(TimestampSchemaMixin, BaseModel):
-            name: str
-        
-        # Should have timestamp fields
-        assert 'created_at' in TestSchema.model_fields
-        assert 'updated_at' in TestSchema.model_fields
-    
-    def test_uuid_schema_mixin(self):
-        """Test UUIDSchemaMixin."""
-        from oxutils.mixins.schemas import UUIDSchemaMixin
-        from pydantic import BaseModel
-        
-        class TestSchema(UUIDSchemaMixin, BaseModel):
-            name: str
-        
-        # Should have id field
-        assert 'id' in TestSchema.model_fields
+        # Should have required fields
+        assert 'detail' in ResponseSchema.model_fields
+        assert 'code' in ResponseSchema.model_fields
+        assert 'errors' in ResponseSchema.model_fields
 
 
 class TestMixinIntegration:
@@ -256,16 +200,16 @@ class TestMixinIntegration:
     @pytest.mark.skipif(not MODELS_AVAILABLE, reason="Models not available")
     def test_combined_mixins(self):
         """Test combining multiple mixins."""
-        class Product(BaseModelMixin, NameMixin):
+        class ProductTestModel(BaseModelMixin, NameMixin):
             price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
             
             class Meta:
                 app_label = 'test'
         
         # Should have all fields from both mixins
-        assert hasattr(Product, 'id')  # From BaseModelMixin
-        assert hasattr(Product, 'created_at')  # From BaseModelMixin
-        assert hasattr(Product, 'is_active')  # From BaseModelMixin
-        assert hasattr(Product, 'name')  # From NameMixin
-        assert hasattr(Product, 'description')  # From NameMixin
-        assert hasattr(Product, 'price')  # Own field
+        assert hasattr(ProductTestModel, 'id')  # From BaseModelMixin
+        assert hasattr(ProductTestModel, 'created_at')  # From BaseModelMixin
+        assert hasattr(ProductTestModel, 'is_active')  # From BaseModelMixin
+        assert hasattr(ProductTestModel, 'name')  # From NameMixin
+        assert hasattr(ProductTestModel, 'description')  # From NameMixin
+        assert hasattr(ProductTestModel, 'price')  # Own field

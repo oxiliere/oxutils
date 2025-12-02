@@ -18,8 +18,8 @@ class LogExportHistory(models.Model):
         default=ExportStatus.PENDING,
         choices=(
             (ExportStatus.FAILED, _("Failed")),
-            (ExportStatus.PENDING, _('pending')),
-            (ExportStatus.SUCCESS, _('success'))
+            (ExportStatus.PENDING, _('Pending')),
+            (ExportStatus.SUCCESS, _('Success'))
         )
     )
     created_at = models.DateTimeField(
@@ -34,8 +34,8 @@ class LogExportState(TimestampMixin):
         default=ExportStatus.PENDING,
         choices=(
             (ExportStatus.FAILED, _("Failed")),
-            (ExportStatus.PENDING, _('pending')),
-            (ExportStatus.SUCCESS, _('success'))
+            (ExportStatus.PENDING, _('Pending')),
+            (ExportStatus.SUCCESS, _('Success'))
         )
     )
     data = models.FileField(storage=LogStorage())

@@ -55,7 +55,7 @@ class BaseService:
         Raises:
             APIException: Always raises an appropriate APIException subclass
         """
-        from utils_mixins.exceptions import (
+        from oxutils.exceptions import (
             NotFoundException,
             ValidationException,
             ConflictException,
@@ -83,7 +83,7 @@ class BaseService:
             self.inner_exception_handler(exc, logger)
         except Exception as inner_exc:
             # If inner_exception_handler raised an APIException, re-raise it
-            from utils_mixins.exceptions import APIException
+            from oxutils.exceptions import APIException
             if isinstance(inner_exc, APIException):
                 raise inner_exc
             

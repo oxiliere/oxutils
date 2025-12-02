@@ -20,7 +20,7 @@ class OxUtilsSettings(BaseSettings):
     )
 
     # Service
-    service_name: str
+    service_name: Optional[str] = 'Oxutils'
 
     # Auth JWT Settings (JWT_SIGNING_KEY)
     jwt_signing_key: Optional[str] = None
