@@ -46,7 +46,7 @@ if oxi_settings.use_static_s3:
 
 if oxi_settings.use_default_s3:
     DEFAULT_FILE_STORAGE = 'oxutils.s3.storages.PublicMediaStorage'
-    MEDIA_URL = f'https://{oxi_settings.default_s3_s3_custom_domain}/{oxi_settings.default_s3_location}/'
+    MEDIA_URL = f'https://{oxi_settings.default_s3_custom_domain}/{oxi_settings.default_s3_location}/'
 
 # 4. Celery configuration
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

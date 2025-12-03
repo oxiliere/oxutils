@@ -22,4 +22,4 @@ def pytest_configure(config):
     os.environ.setdefault('OXI_PRIVATE_S3_STORAGE_BUCKET_NAME', 'test-bucket')
     os.environ.setdefault('OXI_PRIVATE_S3_ACCESS_KEY_ID', 'test-key')
     os.environ.setdefault('OXI_PRIVATE_S3_SECRET_ACCESS_KEY', 'test-secret')
-    os.environ.setdefault('OXI_PRIVATE_S3_S3_CUSTOM_DOMAIN', 'test.example.com')
+    os.environ.setdefault('OXI_PRIVATE_S3_CUSTOM_DOMAIN', 'test.example.com')

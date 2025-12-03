@@ -52,7 +52,7 @@ export OXI_USE_PRIVATE_S3_AS_LOG=True
 export OXI_PRIVATE_S3_STORAGE_BUCKET_NAME=your-bucket
 export OXI_PRIVATE_S3_ACCESS_KEY_ID=your-key
 export OXI_PRIVATE_S3_SECRET_ACCESS_KEY=your-secret
-export OXI_PRIVATE_S3_S3_CUSTOM_DOMAIN=your-domain.com
+export OXI_PRIVATE_S3_CUSTOM_DOMAIN=your-domain.com
 ```
 
 3. Create the migrations:
@@ -118,7 +118,7 @@ Make sure all S3 environment variables are defined:
 - `OXI_PRIVATE_S3_STORAGE_BUCKET_NAME`
 - `OXI_PRIVATE_S3_ACCESS_KEY_ID`
 - `OXI_PRIVATE_S3_SECRET_ACCESS_KEY`
-- `OXI_PRIVATE_S3_S3_CUSTOM_DOMAIN`
+- `OXI_PRIVATE_S3_CUSTOM_DOMAIN`
 
 ### Error: "No module named 'oxutils'"
 

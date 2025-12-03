@@ -53,7 +53,7 @@ class PublicMediaStorage(S3Boto3Storage):
             self.access_key = oxi_settings.default_s3_access_key_id
             self.secret_key = oxi_settings.default_s3_secret_access_key
             self.bucket_name = oxi_settings.default_s3_storage_bucket_name
-            self.custom_domain = oxi_settings.default_s3_s3_custom_domain
+            self.custom_domain = oxi_settings.default_s3_custom_domain
         
         self.location = oxi_settings.default_s3_location
         self.default_acl = oxi_settings.default_s3_default_acl
@@ -79,7 +79,7 @@ class PrivateMediaStorage(S3Boto3Storage):
         self.access_key = oxi_settings.private_s3_access_key_id
         self.secret_key = oxi_settings.private_s3_secret_access_key
         self.bucket_name = oxi_settings.private_s3_storage_bucket_name
-        self.custom_domain = oxi_settings.private_s3_s3_custom_domain
+        self.custom_domain = oxi_settings.private_s3_custom_domain
         self.location = oxi_settings.private_s3_location
         self.default_acl = oxi_settings.private_s3_default_acl
         self.file_overwrite = False
@@ -107,12 +107,12 @@ class LogStorage(S3Boto3Storage):
             self.access_key = oxi_settings.private_s3_access_key_id
             self.secret_key = oxi_settings.private_s3_secret_access_key
             self.bucket_name = oxi_settings.private_s3_storage_bucket_name
-            self.custom_domain = oxi_settings.private_s3_s3_custom_domain
+            self.custom_domain = oxi_settings.private_s3_custom_domain
         else:
             self.access_key = oxi_settings.log_s3_access_key_id
             self.secret_key = oxi_settings.log_s3_secret_access_key
             self.bucket_name = oxi_settings.log_s3_storage_bucket_name
-            self.custom_domain = oxi_settings.log_s3_s3_custom_domain
+            self.custom_domain = oxi_settings.log_s3_custom_domain
         
         self.location = f'{oxi_settings.log_s3_location}/{oxi_settings.service_name}'
         self.default_acl = oxi_settings.log_s3_default_acl

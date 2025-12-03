@@ -14,7 +14,7 @@ os.environ.setdefault('OXI_USE_PRIVATE_S3_AS_LOG', 'True')
 os.environ.setdefault('OXI_PRIVATE_S3_STORAGE_BUCKET_NAME', 'test-bucket')
 os.environ.setdefault('OXI_PRIVATE_S3_ACCESS_KEY_ID', 'test-key')
 os.environ.setdefault('OXI_PRIVATE_S3_SECRET_ACCESS_KEY', 'test-secret')
-os.environ.setdefault('OXI_PRIVATE_S3_S3_CUSTOM_DOMAIN', 'test.example.com')
+os.environ.setdefault('OXI_PRIVATE_S3_CUSTOM_DOMAIN', 'test.example.com')
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'test-secret-key-not-for-production'
