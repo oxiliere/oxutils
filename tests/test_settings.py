@@ -7,6 +7,16 @@ from pydantic import ValidationError
 from oxutils.settings import OxUtilsSettings, oxi_settings
 
 
+@pytest.fixture
+def clean_env(monkeypatch):
+    """Remove OXI_ environment variables for clean testing."""
+    # Remove all OXI_ variables
+    for key in list(os.environ.keys()):
+        if key.startswith('OXI_'):
+            monkeypatch.delenv(key, raising=False)
+    return monkeypatch
+
+
 class TestOxUtilsSettings:
     """Test OxUtilsSettings configuration."""
     
@@ -29,7 +39,7 @@ class TestOxUtilsSettings:
         assert settings.log_access is False
         assert settings.retention_delay == 7
     
-    def test_s3_default_values(self):
+    def test_s3_default_values(self, clean_env):
         """Test S3 default values."""
         settings = OxUtilsSettings(service_name='test')
         assert settings.use_static_s3 is False
@@ -124,7 +134,7 @@ class TestOxUtilsSettings:
         url = settings.get_default_storage_url()
         assert url == 'https://cdn.example.com/media/'
     
-    def test_get_log_storage_url(self):
+    def test_get_log_storage_url(self, clean_env):
         """Test get_log_storage_url method."""
         settings = OxUtilsSettings(
             service_name='test-service',

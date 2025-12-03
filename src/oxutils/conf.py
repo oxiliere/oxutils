@@ -3,6 +3,7 @@ UTILS_APPS = (
     'auditlog',
     'cid.apps.CidAppConfig',
     'django_celery_results',
+    'oxutils.audit',
 )
 
 AUDIT_MIDDLEWARE = (

@@ -8,6 +8,32 @@
 - Data masking for sensitive fields
 - Log export to S3 (ZIP format)
 - Configurable retention policies
+- Export state tracking with history
+
+## Setup
+
+The audit module is automatically included when you use `UTILS_APPS`:
+
+```python
+# settings.py
+from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE
+
+INSTALLED_APPS = [
+    *UTILS_APPS,  # Includes 'oxutils.audit'
+    # your apps...
+]
+
+MIDDLEWARE = [
+    *AUDIT_MIDDLEWARE,
+    # your middleware...
+]
+```
+
+Then run migrations:
+
+```bash
+python manage.py migrate audit
+```
 
 ## Configuration
 
