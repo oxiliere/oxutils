@@ -111,6 +111,18 @@ uv sync
 uv run pytest  # 126 tests
 ```
 
+### Creating Migrations
+
+To generate Django migrations for the audit module:
+
+```bash
+make migrations
+# or
+uv run make_migrations.py
+```
+
+See [MIGRATIONS.md](MIGRATIONS.md) for detailed documentation.
+
 ## Advanced Examples
 
 ### JWT with Django Ninja

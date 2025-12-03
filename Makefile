@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose test-coverage test-fast clean install lint format
+.PHONY: help test test-verbose test-coverage test-fast clean install lint format migrations
 
 help:
 	@echo "OxUtils Development Commands"
@@ -10,6 +10,7 @@ help:
 	@echo "  make test-fast        Run tests without coverage"
 	@echo "  make lint             Run linting checks"
 	@echo "  make format           Format code"
+	@echo "  make migrations       Generate Django migrations"
 	@echo "  make clean            Clean build artifacts"
 
 install:
@@ -50,6 +51,9 @@ lint:
 
 format:
 	ruff format src/
+
+migrations:
+	uv run python make_migrations.py
 
 clean:
 	rm -rf .pytest_cache
