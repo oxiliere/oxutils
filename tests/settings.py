@@ -6,6 +6,16 @@ import os
 # Build paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Set required environment variables for S3 storage (used by audit models)
+os.environ.setdefault('OXI_SERVICE_NAME', 'test-service')
+os.environ.setdefault('OXI_USE_LOG_S3', 'True')
+os.environ.setdefault('OXI_USE_PRIVATE_S3', 'True')
+os.environ.setdefault('OXI_USE_PRIVATE_S3_AS_LOG', 'True')
+os.environ.setdefault('OXI_PRIVATE_S3_STORAGE_BUCKET_NAME', 'test-bucket')
+os.environ.setdefault('OXI_PRIVATE_S3_ACCESS_KEY_ID', 'test-key')
+os.environ.setdefault('OXI_PRIVATE_S3_SECRET_ACCESS_KEY', 'test-secret')
+os.environ.setdefault('OXI_PRIVATE_S3_CUSTOM_DOMAIN', 'test.example.com')
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'test-secret-key-not-for-production'
 
@@ -22,6 +32,7 @@ INSTALLED_APPS = [
     'auditlog',
     'cid.apps.CidAppConfig',
     'django_celery_results',
+    'oxutils.audit',
 ]
 
 MIDDLEWARE = [

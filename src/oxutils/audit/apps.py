@@ -3,10 +3,10 @@ from django.utils.translation import gettext_lazy as _
 
 
 
-class OxutilsConfig(AppConfig):
+class OxutilsAuditConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'oxutils_export'
-    verbose_name = _("Oxutils Export")
+    name = 'oxutils.audit'
+    verbose_name = _("Oxutils Audit")
 
     def ready(self):
         return super().ready()

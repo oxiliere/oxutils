@@ -3,8 +3,17 @@ Tests for OxUtils settings module.
 """
 import pytest
 import os
-from pydantic import ValidationError
-from oxutils.settings import OxUtilsSettings, oxi_settings
+from oxutils.settings import OxUtilsSettings
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    """Remove OXI_ environment variables for clean testing."""
+    # Remove all OXI_ variables
+    for key in list(os.environ.keys()):
+        if key.startswith('OXI_'):
+            monkeypatch.delenv(key, raising=False)
+    return monkeypatch
 
 
 class TestOxUtilsSettings:
@@ -29,7 +38,7 @@ class TestOxUtilsSettings:
         assert settings.log_access is False
         assert settings.retention_delay == 7
     
-    def test_s3_default_values(self):
+    def test_s3_default_values(self, clean_env):
         """Test S3 default values."""
         settings = OxUtilsSettings(service_name='test')
         assert settings.use_static_s3 is False
@@ -118,13 +127,13 @@ class TestOxUtilsSettings:
             default_s3_access_key_id='key',
             default_s3_secret_access_key='secret',
             default_s3_storage_bucket_name='bucket',
-            default_s3_s3_custom_domain='cdn.example.com',
+            default_s3_custom_domain='cdn.example.com',
             default_s3_location='media',
         )
         url = settings.get_default_storage_url()
         assert url == 'https://cdn.example.com/media/'
     
-    def test_get_log_storage_url(self):
+    def test_get_log_storage_url(self, clean_env):
         """Test get_log_storage_url method."""
         settings = OxUtilsSettings(
             service_name='test-service',
@@ -132,7 +141,7 @@ class TestOxUtilsSettings:
             log_s3_access_key_id='key',
             log_s3_secret_access_key='secret',
             log_s3_storage_bucket_name='bucket',
-            log_s3_s3_custom_domain='logs.example.com',
+            log_s3_custom_domain='logs.example.com',
             log_s3_location='oxi_logs',
         )
         url = settings.get_log_storage_url()
@@ -184,7 +193,7 @@ class TestWriteDjangoSettings:
             default_s3_access_key_id='key',
             default_s3_secret_access_key='secret',
             default_s3_storage_bucket_name='bucket',
-            default_s3_s3_custom_domain='cdn.example.com',
+            default_s3_custom_domain='cdn.example.com',
         )
         
         settings.write_django_settings(django_settings)
@@ -204,7 +213,7 @@ class TestWriteDjangoSettings:
             private_s3_access_key_id='key',
             private_s3_secret_access_key='secret',
             private_s3_storage_bucket_name='bucket',
-            private_s3_s3_custom_domain='private.example.com',
+            private_s3_custom_domain='private.example.com',
         )
         
         settings.write_django_settings(django_settings)

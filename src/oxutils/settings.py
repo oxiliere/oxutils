@@ -52,7 +52,7 @@ class OxUtilsSettings(BaseSettings):
     default_s3_secret_access_key: Optional[str] = None
     default_s3_storage_bucket_name: Optional[str] = None
     default_s3_default_acl: str = Field('public-read')
-    default_s3_s3_custom_domain: Optional[str] = None
+    default_s3_custom_domain: Optional[str] = None
     default_s3_location: str = Field('media')
     default_s3_storage: str = Field('oxutils.s3.storages.PublicMediaStorage')
 
@@ -62,7 +62,7 @@ class OxUtilsSettings(BaseSettings):
     private_s3_secret_access_key: Optional[str] = None
     private_s3_storage_bucket_name: Optional[str] = None
     private_s3_default_acl: str = Field('private')
-    private_s3_s3_custom_domain: Optional[str] = None
+    private_s3_custom_domain: Optional[str] = None
     private_s3_location: str = Field('private')
     private_s3_storage: str = Field('oxutils.s3.storages.PrivateMediaStorage')
 
@@ -73,7 +73,7 @@ class OxUtilsSettings(BaseSettings):
     log_s3_secret_access_key: Optional[str] = None
     log_s3_storage_bucket_name: Optional[str] = None
     log_s3_default_acl: str = Field('private')
-    log_s3_s3_custom_domain: Optional[str] = None
+    log_s3_custom_domain: Optional[str] = None
     log_s3_location: str = Field('oxi_logs')
     log_s3_storage: str = Field('oxutils.s3.storages.LogStorage')
 
@@ -102,7 +102,7 @@ class OxUtilsSettings(BaseSettings):
                     self.default_s3_access_key_id,
                     self.default_s3_secret_access_key,
                     self.default_s3_storage_bucket_name,
-                    self.default_s3_s3_custom_domain
+                    self.default_s3_custom_domain
                 )
             elif not self.use_static_s3:
                 raise ValueError(
@@ -116,7 +116,7 @@ class OxUtilsSettings(BaseSettings):
                 self.private_s3_access_key_id,
                 self.private_s3_secret_access_key,
                 self.private_s3_storage_bucket_name,
-                self.private_s3_s3_custom_domain
+                self.private_s3_custom_domain
             )
         
         # Validate log S3
@@ -127,7 +127,7 @@ class OxUtilsSettings(BaseSettings):
                     self.log_s3_access_key_id,
                     self.log_s3_secret_access_key,
                     self.log_s3_storage_bucket_name,
-                    self.log_s3_s3_custom_domain
+                    self.log_s3_custom_domain
                 )
             elif not self.use_private_s3:
                 raise ValueError(
@@ -166,11 +166,11 @@ class OxUtilsSettings(BaseSettings):
         """Validate required S3 configuration fields."""
         missing_fields = []
         if not access_key:
-            missing_fields.append(f'OXI_{name.upper()}_ACCESS_KEY_ID')
+            missing_fields.append(f'OXI_{name.upper()}_S3_ACCESS_KEY_ID')
         if not secret_key:
-            missing_fields.append(f'OXI_{name.upper()}_SECRET_ACCESS_KEY')
+            missing_fields.append(f'OXI_{name.upper()}_S3_SECRET_ACCESS_KEY')
         if not bucket:
-            missing_fields.append(f'OXI_{name.upper()}_STORAGE_BUCKET_NAME')
+            missing_fields.append(f'OXI_{name.upper()}_S3_STORAGE_BUCKET_NAME')
         if not domain:
             missing_fields.append(f'OXI_{name.upper()}_S3_CUSTOM_DOMAIN')
         
@@ -194,7 +194,7 @@ class OxUtilsSettings(BaseSettings):
                 # Use static S3 credentials but keep default_s3 specific values (location, etc.)
                 domain = self.static_s3_custom_domain
             else:
-                domain = self.default_s3_s3_custom_domain
+                domain = self.default_s3_custom_domain
             return f'https://{domain}/{self.default_s3_location}/'
         
         raise ImproperlyConfigured(
@@ -207,7 +207,7 @@ class OxUtilsSettings(BaseSettings):
             raise ImproperlyConfigured(
                 "Private S3 is not enabled. Set OXI_USE_PRIVATE_S3=True."
             )
-        return f'https://{self.private_s3_s3_custom_domain}/{self.private_s3_location}/'
+        return f'https://{self.private_s3_custom_domain}/{self.private_s3_location}/'
     
     def get_log_storage_url(self) -> str:
         """Get log storage URL."""
@@ -217,9 +217,9 @@ class OxUtilsSettings(BaseSettings):
             )
         if self.use_private_s3_as_log:
             # Use private S3 credentials but keep log_s3 specific values (location, etc.)
-            domain = self.private_s3_s3_custom_domain
+            domain = self.private_s3_custom_domain
         else:
-            domain = self.log_s3_s3_custom_domain
+            domain = self.log_s3_custom_domain
         return f'https://{domain}/{self.log_s3_location}/{self.service_name}/'
 
 
