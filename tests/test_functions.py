@@ -26,19 +26,18 @@ class TestGetAbsoluteUrl:
     def test_get_absolute_url_without_request(self):
         """Test get_absolute_url without request object."""
         with patch('oxutils.functions.settings') as mock_settings:
-            mock_settings.SITE_URL = 'http://example.com'
+            mock_settings.SITE_DOMAIN = 'http://example.com'
             url = get_absolute_url('/media/image.jpg')
             
             assert url == 'http://example.com/media/image.jpg'
     
     def test_get_absolute_url_default_fallback(self):
         """Test get_absolute_url with default fallback."""
-        with patch('oxutils.functions.settings') as mock_settings:
-            mock_settings.SITE_URL = None
-            delattr(mock_settings, 'SITE_URL')
-            
+        with patch('oxutils.functions.settings', spec=[]) as mock_settings:
+            # SITE_DOMAIN attribute doesn't exist, so getattr will use default
             url = get_absolute_url('/media/image.jpg')
             assert 'localhost' in url
+            assert url == 'http://localhost:8000/media/image.jpg'
 
 
 class TestRequestIsBound:

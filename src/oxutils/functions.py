@@ -6,12 +6,15 @@ from ninja_extra.exceptions import ValidationError
 
 
 def get_absolute_url(url: str, request=None):
+    if url.startswith('http'):
+        return url
+
     if request:
         # Build absolute URL using request
         return request.build_absolute_uri(url)
     else:
-        # Fallback: build URL using MEDIA_URL and domain
-        base_url = getattr(settings, 'SITE_URL', 'http://localhost:8000')
+        # Fallback: build URL using SITE_DOMAIN and domain
+        base_url = getattr(settings, 'SITE_DOMAIN', 'http://localhost:8000')
         return urljoin(base_url, url)
 
 

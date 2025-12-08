@@ -5,7 +5,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/oxutils.svg)](https://pypi.org/project/oxutils/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Django 5.0+](https://img.shields.io/badge/django-5.0+-green.svg)](https://www.djangoproject.com/)
-[![Tests](https://img.shields.io/badge/tests-126%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-145%20passed-success.svg)](tests/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -18,6 +18,7 @@
 - ⚙️ **Celery Integration** - Pre-configured task processing
 - 🛠️ **Django Mixins** - UUID, timestamps, user tracking
 - ⚡ **Custom Exceptions** - Standardized API errors
+- 🎨 **Context Processors** - Site name and domain for templates
 
 ---
 
@@ -84,6 +85,17 @@ class Product(BaseModelMixin):  # UUID + timestamps + is_active
 # Custom Exceptions
 from oxutils.exceptions import NotFoundException
 raise NotFoundException(detail="User not found")
+
+# Context Processors
+# settings.py
+TEMPLATES = [{
+    'OPTIONS': {
+        'context_processors': [
+            'oxutils.context.site_name_processor.site_name',
+        ],
+    },
+}]
+# Now {{ site_name }} and {{ site_domain }} are available in templates
 ```
 
 ## Documentation
@@ -108,7 +120,7 @@ raise NotFoundException(detail="User not found")
 git clone https://github.com/oxiliere/oxutils.git
 cd oxutils
 uv sync
-uv run pytest  # 126 tests
+uv run pytest  # 145 tests
 ```
 
 ### Creating Migrations

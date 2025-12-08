@@ -21,6 +21,8 @@ class OxUtilsSettings(BaseSettings):
 
     # Service
     service_name: Optional[str] = 'Oxutils'
+    site_name: Optional[str] = 'Oxiliere'
+    site_domain: Optional[str] = 'oxiliere.com'
 
     # Auth JWT Settings (JWT_SIGNING_KEY)
     jwt_signing_key: Optional[str] = None
