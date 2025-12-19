@@ -3,7 +3,7 @@
 **Production-ready utilities for Django applications in the Oxiliere ecosystem.**
 
 [![PyPI version](https://img.shields.io/pypi/v/oxutils.svg)](https://pypi.org/project/oxutils/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![Django 5.0+](https://img.shields.io/badge/django-5.0+-green.svg)](https://www.djangoproject.com/)
 [![Tests](https://img.shields.io/badge/tests-145%20passed-success.svg)](tests/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -13,7 +13,7 @@
 
 - 🔐 **JWT Authentication** - RS256 with JWKS caching
 - 📦 **S3 Storage** - Static, media, private, and log backends
-- 📝 **Structured Logging** - JSON logs with correlation IDs
+- 📝 **Structured Logging** - JSON logs with automatic request tracking
 - 🔍 **Audit System** - Change tracking with S3 export
 - ⚙️ **Celery Integration** - Pre-configured task processing
 - 🛠️ **Django Mixins** - UUID, timestamps, user tracking
@@ -41,12 +41,12 @@ uv add oxutils
 from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE
 
 INSTALLED_APPS = [
-    *UTILS_APPS,  # structlog, auditlog, cid, celery_results
+    *UTILS_APPS,  # structlog, auditlog, celery_results
     # your apps...
 ]
 
 MIDDLEWARE = [
-    *AUDIT_MIDDLEWARE,  # CID, Auditlog, RequestMiddleware
+    *AUDIT_MIDDLEWARE,  # RequestMiddleware, Auditlog
     # your middleware...
 ]
 ```
@@ -110,7 +110,7 @@ TEMPLATES = [{
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - Django 5.0+
 - PostgreSQL (recommended)
 

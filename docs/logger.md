@@ -1,13 +1,14 @@
 # Structured Logging
 
-**JSON logs with correlation IDs using structlog**
+**JSON logs with request tracking using django-structlog**
 
 ## Features
 
 - JSON-formatted logs
-- Correlation ID tracking (CID)
-- Automatic context (user, domain, service)
-- Multiple formatters (JSON, key-value, colored console)
+- Automatic request_id tracking for correlation
+- Automatic context (user, domain, service, IP)
+- Multiple formatters (JSON, console)
+- Celery task logging support
 
 ## Configuration
 
@@ -16,11 +17,11 @@
 from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE
 
 INSTALLED_APPS = [
-    *UTILS_APPS,  # Includes django_structlog, cid
+    *UTILS_APPS,  # Includes django_structlog
 ]
 
 MIDDLEWARE = [
-    *AUDIT_MIDDLEWARE,  # Includes CID and RequestMiddleware
+    *AUDIT_MIDDLEWARE,  # Includes RequestMiddleware for request_id generation
 ]
 ```
 
@@ -61,21 +62,40 @@ except Exception as e:
   "user_id": "123",
   "timestamp": "2024-01-01T10:00:00Z",
   "level": "info",
-  "cid": "abc-def-123",
+  "request_id": "abc-def-123-456",
+  "ip": "127.0.0.1",
+  "domain": "example.com",
   "service": "my-service"
 }
 ```
 
-## Correlation ID
+## Request ID Tracking
 
-Automatic correlation ID tracking across requests:
+Automatic request_id generation and tracking across requests:
 
 ```python
 # Automatically added to all logs in the same request
 # Access in views
-from cid.locals import get_cid
+import structlog
 
-correlation_id = get_cid()
+# Get current context including request_id
+context = structlog.contextvars.get_contextvars()
+request_id = context.get('request_id')
+
+# Or use the utility function
+from oxutils.audit.utils import get_request_id
+request_id = get_request_id()
+```
+
+## Request ID in Audit Logs
+
+The same `request_id` is automatically stored in auditlog entries via the `cid` field, allowing you to correlate audit logs with application logs:
+
+```python
+from auditlog.models import LogEntry
+
+# Find all audit entries for a specific request
+entries = LogEntry.objects.filter(cid=request_id)
 ```
 
 ## Related Docs
