@@ -25,11 +25,9 @@ def pytest_configure():
                 'django.contrib.auth',
                 'django_structlog',
                 'auditlog',
-                'cid.apps.CidAppConfig',
                 'django_celery_results',
             ],
             MIDDLEWARE=[
-                'cid.middleware.CidMiddleware',
                 'auditlog.middleware.AuditlogMiddleware',
                 'django_structlog.middlewares.RequestMiddleware',
             ],

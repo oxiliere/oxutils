@@ -17,7 +17,6 @@ class TestConfiguration:
         required_apps = [
             'django_structlog',
             'auditlog',
-            'cid.apps.CidAppConfig',
             'django_celery_results',
             'oxutils.audit',
         ]
@@ -27,12 +26,11 @@ class TestConfiguration:
     
     def test_utils_apps_count(self):
         """Test that UTILS_APPS has the expected number of apps."""
-        assert len(UTILS_APPS) == 5
+        assert len(UTILS_APPS) == 4
 
     def test_audit_middleware_contains_required(self):
         """Test that AUDIT_MIDDLEWARE contains required middleware."""
         required_middleware = [
-            'cid.middleware.CidMiddleware',
             'auditlog.middleware.AuditlogMiddleware',
             'django_structlog.middlewares.RequestMiddleware',
         ]

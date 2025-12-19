@@ -30,16 +30,15 @@ INSTALLED_APPS = [
     'django.contrib.auth',
     'django_structlog',
     'auditlog',
-    'cid.apps.CidAppConfig',
     'django_celery_results',
     'oxutils.audit',
+    'oxutils.currency',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'cid.middleware.CidMiddleware',
-    'auditlog.middleware.AuditlogMiddleware',
     'django_structlog.middlewares.RequestMiddleware',
+    'auditlog.middleware.AuditlogMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
 

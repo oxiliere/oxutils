@@ -158,8 +158,8 @@ class TestTokenVerification:
         """Test token verification with expired token."""
         expired_payload = {
             'sub': 'user-123',
-            'exp': datetime.utcnow() - timedelta(hours=1),
-            'iat': datetime.utcnow() - timedelta(hours=2),
+            'exp': datetime.now() - timedelta(hours=1),
+            'iat': datetime.now() - timedelta(hours=2),
         }
         
         token = jwt.encode(
@@ -270,8 +270,8 @@ class TestJWTIntegration:
         payload = {
             'sub': 'user-123',
             'email': 'test@example.com',
-            'exp': datetime.utcnow() + timedelta(hours=1),
-            'iat': datetime.utcnow(),
+            'exp': datetime.now() + timedelta(hours=1),
+            'iat': datetime.now(),
         }
         
         token = jwt.encode(

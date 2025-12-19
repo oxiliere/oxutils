@@ -24,6 +24,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # django middleware....
     *AUDIT_MIDDLEWARE,
     # your middleware...
 ]
@@ -109,6 +110,26 @@ Each change is logged with:
 - Timestamp
 - Changed fields (before/after)
 - Action type (create, update, delete)
+- Request ID (correlation with application logs)
+
+## Request ID Correlation
+
+Audit logs automatically include the `request_id` from django-structlog in the `cid` field, allowing you to correlate audit entries with application logs:
+
+```python
+from auditlog.models import LogEntry
+
+# Find all audit entries for a specific request
+request_id = "abc-def-123-456"
+entries = LogEntry.objects.filter(cid=request_id)
+
+# See what was changed in this request
+for entry in entries:
+    print(f"{entry.action}: {entry.object_repr}")
+    print(f"Changes: {entry.changes}")
+```
+
+This enables full request tracing across both application logs and audit logs.
 
 ## Related Docs
 
