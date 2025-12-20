@@ -22,7 +22,6 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = [
-    "bcc-rates>=1.1.0",
     "boto3>=1.41.5",
     "celery>=5.5.3",
     "cryptography>=46.0.3",
@@ -55,7 +54,13 @@ members = [
     ".",
 ]
 
+[tool.uv.sources]
+oxutils = { workspace = true }
+
 [dependency-groups]
+currency = [
+    "bcc-rates>=1.1.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-django>=4.8.0",
@@ -64,6 +69,16 @@ dev = [
     "coverage>=7.4.0",
     "pillow>=12.0.0",
     "ruff>=0.8.0",
+]
+oxiliere = [
+    "django-cacheops>=7.2",
+    "django-tenants>=3.9.0",
+]
+template = [
+    "beautifulsoup4>=4.14.3",
+    "jinja2>=3.1.6",
+    "premailer>=3.10.0",
+    "weasyprint>=67.0",
 ]
 
 [tool.ruff]

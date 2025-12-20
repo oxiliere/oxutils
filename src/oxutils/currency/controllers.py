@@ -11,11 +11,12 @@ from ninja_extra.pagination import (
 from ninja.errors import HttpError
 from uuid import UUID
 import structlog
-from currency.models import CurrencyState
-from currency.schemas import (
+from oxutils.currency.models import CurrencyState
+from oxutils.currency.schemas import (
     CurrencyStateSchema,
     CurrencyStateDetailSchema,
 )
+
 
 logger = structlog.get_logger(__name__)
 
