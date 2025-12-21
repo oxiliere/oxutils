@@ -10,7 +10,7 @@ This package provides:
 - Custom exceptions
 """
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 from oxutils.settings import oxi_settings
 from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE

@@ -5,7 +5,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/oxutils.svg)](https://pypi.org/project/oxutils/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![Django 5.0+](https://img.shields.io/badge/django-5.0+-green.svg)](https://www.djangoproject.com/)
-[![Tests](https://img.shields.io/badge/tests-145%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-201%20passed-success.svg)](tests/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -19,6 +19,9 @@
 - 🛠️ **Django Mixins** - UUID, timestamps, user tracking
 - ⚡ **Custom Exceptions** - Standardized API errors
 - 🎨 **Context Processors** - Site name and domain for templates
+- 💱 **Currency Module** - Multi-source exchange rates (BCC/OXR)
+- 📄 **PDF Generation** - WeasyPrint integration for Django
+- 🏢 **Multi-Tenant** - PostgreSQL schema-based isolation
 
 ---
 
@@ -100,6 +103,7 @@ TEMPLATES = [{
 
 ## Documentation
 
+### Core Modules
 - **[Settings](docs/settings.md)** - Configuration reference
 - **[JWT](docs/jwt.md)** - Authentication
 - **[S3](docs/s3.md)** - Storage backends
@@ -107,6 +111,11 @@ TEMPLATES = [{
 - **[Logging](docs/logger.md)** - Structured logs
 - **[Mixins](docs/mixins.md)** - Model/service mixins
 - **[Celery](docs/celery.md)** - Task processing
+
+### Additional Modules
+- **[Currency](docs/currency.md)** - Exchange rates management
+- **[PDF](docs/pdf.md)** - PDF generation with WeasyPrint
+- **[Oxiliere](docs/oxiliere.md)** - Multi-tenant architecture
 
 ## Requirements
 
@@ -120,7 +129,7 @@ TEMPLATES = [{
 git clone https://github.com/oxiliere/oxutils.git
 cd oxutils
 uv sync
-uv run pytest  # 145 tests
+uv run pytest  # 201 tests passing, 4 skipped
 ```
 
 ### Creating Migrations
@@ -134,6 +143,19 @@ uv run make_migrations.py
 ```
 
 See [MIGRATIONS.md](MIGRATIONS.md) for detailed documentation.
+
+## Optional Dependencies
+
+```bash
+# Multi-tenant support
+uv add oxutils[oxiliere]
+
+# PDF generation
+uv add oxutils[pdf]
+
+# Development tools
+uv add oxutils[dev]
+```
 
 ## Advanced Examples
 
@@ -167,6 +189,55 @@ from datetime import datetime, timedelta
 from_date = datetime.now() - timedelta(days=7)
 export = export_logs_from_date(from_date=from_date)
 print(f"Exported to {export.data.url}")
+```
+
+### Currency Exchange Rates
+
+```python
+from oxutils.currency.models import CurrencyState
+
+# Sync rates from BCC (with OXR fallback)
+state = CurrencyState.sync()
+
+# Get latest rates
+latest = CurrencyState.objects.latest()
+usd_rate = latest.currencies.get(code='USD').rate
+eur_rate = latest.currencies.get(code='EUR').rate
+```
+
+### PDF Generation
+
+```python
+from oxutils.pdf.printer import Printer
+from oxutils.pdf.views import WeasyTemplateView
+
+# Standalone PDF generation
+printer = Printer(
+    template_name='invoice.html',
+    context={'invoice': invoice},
+    stylesheets=['css/invoice.css']
+)
+pdf_bytes = printer.write_pdf()
+
+# Class-based view
+class InvoicePDFView(WeasyTemplateView):
+    template_name = 'invoice.html'
+    pdf_filename = 'invoice.pdf'
+    pdf_stylesheets = ['css/invoice.css']
+```
+
+### Multi-Tenant Setup
+
+```python
+# settings.py
+TENANT_MODEL = "oxiliere.Tenant"
+MIDDLEWARE = [
+    'oxutils.oxiliere.middleware.TenantMainMiddleware',  # First!
+    # other middleware...
+]
+
+# All requests must include X-Organization-ID header
+# Data is automatically isolated per tenant schema
 ```
 
 ## License
