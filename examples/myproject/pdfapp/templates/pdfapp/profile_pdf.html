@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CV - {{ profile.name }}</title>
+    <link rel="stylesheet" href="{{ STATIC_URL }}css/pdf_style.css">
+</head>
+<body>
+    <div class="cv-header">
+        <h1>{{ profile.name }}</h1>
+        <p class="contact">{{ profile.email }}</p>
+    </div>
+    
+    <div class="cv-section">
+        <h2>Professional Summary</h2>
+        <p>{{ profile.bio }}</p>
+    </div>
+    
+    <div class="cv-section">
+        <h2>Contact Information</h2>
+        <ul>
+            <li><strong>Email:</strong> {{ profile.email }}</li>
+            <li><strong>Profile Created:</strong> {{ profile.created_at|date:"F d, Y" }}</li>
+        </ul>
+    </div>
+    
+    <div class="cv-footer">
+        <p>Generated on {{ profile.created_at|date:"F d, Y" }}</p>
+    </div>
+</body>
+</html>

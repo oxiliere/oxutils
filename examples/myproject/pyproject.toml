@@ -1,0 +1,20 @@
+[project]
+name = "myproject"
+version = "0.1.0"
+description = "Django example project demonstrating oxutils.pdf usage"
+requires-python = ">=3.12"
+dependencies = [
+    "django>=4.2",
+    "weasyprint>=60.0",
+    "oxutils",
+]
+
+[tool.uv.sources]
+oxutils = { path = "../..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = []

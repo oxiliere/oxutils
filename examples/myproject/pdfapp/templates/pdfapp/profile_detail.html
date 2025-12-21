@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ profile.name }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .profile-detail {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .info-row {
+            margin: 15px 0;
+        }
+        .info-row strong {
+            display: inline-block;
+            width: 120px;
+            color: #555;
+        }
+        .actions {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .actions a {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .actions a:hover {
+            background-color: #2980b9;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #3498db;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <a href="{% url 'profile_list' %}" class="back-link">← Back to list</a>
+    
+    <div class="profile-detail">
+        <h1>{{ profile.name }}</h1>
+        
+        <div class="info-row">
+            <strong>Email:</strong> {{ profile.email }}
+        </div>
+        
+        <div class="info-row">
+            <strong>Created:</strong> {{ profile.created_at|date:"F d, Y" }}
+        </div>
+        
+        <div class="info-row">
+            <strong>Bio:</strong>
+            <p>{{ profile.bio }}</p>
+        </div>
+        
+        {% if profile.curriculum_vitae %}
+        <div class="info-row">
+            <strong>CV File:</strong> 
+            <a href="{{ profile.curriculum_vitae.url }}" target="_blank">Download saved CV</a>
+        </div>
+        {% endif %}
+        
+        <div class="actions">
+            <a href="{% url 'profile_pdf' profile.pk %}">View as PDF (WeasyTemplateView)</a>
+            <a href="{% url 'download_pdf' profile.pk %}">Download PDF (Printer)</a>
+            <a href="{% url 'generate_cv' profile.pk %}">Generate & Save CV to FileField</a>
+        </div>
+    </div>
+</body>
+</html>

@@ -21,7 +21,7 @@ class TenantMainMiddleware(MiddlewareMixin):
 
     @staticmethod
     def get_org_id_from_request(request):
-        """ Extracts organization ID from request header OXI-ORG-ID.
+        """ Extracts organization ID from request header X-Organization-ID.
         """
         custom = 'HTTP_' + ORGANIZATION_HEADER_KEY.upper().replace('-', '_')
         return request.headers.get(ORGANIZATION_HEADER_KEY) or request.META.get(custom)
@@ -40,7 +40,7 @@ class TenantMainMiddleware(MiddlewareMixin):
         oxi_id = self.get_org_id_from_request(request)
         if not oxi_id:
             from django.http import HttpResponseBadRequest
-            return HttpResponseBadRequest('Missing OXI-ORG-ID header')
+            return HttpResponseBadRequest('Missing X-Organization-ID header')
 
         tenant_model = connection.tenant_model
         try:
@@ -69,7 +69,7 @@ class TenantMainMiddleware(MiddlewareMixin):
         elif hasattr(settings, 'SHOW_PUBLIC_IF_NO_TENANT_FOUND') and settings.SHOW_PUBLIC_IF_NO_TENANT_FOUND:
             self.setup_url_routing(request=request, force_public=True)
         else:
-            raise self.TENANT_NOT_FOUND_EXCEPTION('No tenant for OXI-ORG-ID "%s"' % oxi_id)
+            raise self.TENANT_NOT_FOUND_EXCEPTION('No tenant for X-Organization-ID "%s"' % oxi_id)
 
     @staticmethod
     def setup_url_routing(request, force_public=False):
