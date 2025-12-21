@@ -1116,7 +1116,7 @@ wheels = [
 
 [[package]]
 name = "oxutils"
-version = "0.1.5"
+version = "0.1.6"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
@@ -1135,18 +1135,9 @@ dependencies = [
     { name = "requests" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 currency = [
     { name = "bcc-rates" },
-]
-dev = [
-    { name = "coverage" },
-    { name = "pillow" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-django" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
 ]
 oxiliere = [
     { name = "django-cacheops" },
@@ -1156,26 +1147,41 @@ pdf = [
     { name = "weasyprint" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "coverage" },
+    { name = "pillow" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-django" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "bcc-rates", marker = "extra == 'currency'", specifier = ">=1.1.0" },
     { name = "boto3", specifier = ">=1.41.5" },
     { name = "celery", specifier = ">=5.5.3" },
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "django-auditlog", specifier = ">=3.3.0" },
+    { name = "django-cacheops", marker = "extra == 'oxiliere'", specifier = ">=7.2" },
     { name = "django-celery-results", specifier = ">=2.6.0" },
     { name = "django-extensions", specifier = ">=4.1" },
     { name = "django-ninja", specifier = ">=1.5.0" },
     { name = "django-ninja-extra", specifier = ">=0.30.6" },
     { name = "django-storages", extras = ["s3"], specifier = ">=1.14.6" },
     { name = "django-structlog", extras = ["celery"], specifier = ">=10.0.0" },
+    { name = "django-tenants", marker = "extra == 'oxiliere'", specifier = ">=3.9.0" },
     { name = "jwcrypto", specifier = ">=1.5.6" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=67.0" },
 ]
+provides-extras = ["currency", "oxiliere", "pdf"]
 
 [package.metadata.requires-dev]
-currency = [{ name = "bcc-rates", specifier = ">=1.1.0" }]
 dev = [
     { name = "coverage", specifier = ">=7.4.0" },
     { name = "pillow", specifier = ">=12.0.0" },
@@ -1185,11 +1191,6 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.12.0" },
     { name = "ruff", specifier = ">=0.8.0" },
 ]
-oxiliere = [
-    { name = "django-cacheops", specifier = ">=7.2" },
-    { name = "django-tenants", specifier = ">=3.9.0" },
-]
-pdf = [{ name = "weasyprint", specifier = ">=67.0" }]
 
 [[package]]
 name = "packaging"
