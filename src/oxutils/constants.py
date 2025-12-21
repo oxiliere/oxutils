@@ -1,0 +1,2 @@
+ORGANIZATION_QUERY_KEY = 'organization_id'
+ORGANIZATION_HEADER_KEY = 'X-Organization-ID'
