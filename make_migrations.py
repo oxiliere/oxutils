@@ -29,23 +29,70 @@ if not settings.configured:
     settings.configure(
         DEBUG=True,
         SECRET_KEY='temporary-secret-key-for-migrations',
-        INSTALLED_APPS=[
+        SHARED_APPS=[
             'django.contrib.contenttypes',
+            'django_tenants',
             'django.contrib.auth',
-            'oxutils.audit',
+            'auditlog',
+            'cacheops',
         ],
+        TENANT_APPS=[
+            'oxutils.audit',
+            'oxutils.users',
+            'oxutils.oxiliere',
+        ],
+        INSTALLED_APPS = [
+            'django.contrib.contenttypes',
+            'django_tenants',
+            'django.contrib.auth',
+            'auditlog',
+            'cacheops',
+            'oxutils.audit',
+            'oxutils.users',
+            # 'oxutils.oxiliere',
+        ],
+        CACHEOPS_REDIS = "redis://localhost:6379/1",
+        CACHEOPS = {
+            'oxiliere.*': {'ops': 'all', 'timeout': 60*15},
+        },
         DATABASES={
             'default': {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': ':memory:',
+                'ENGINE': 'django_tenants.postgresql_backend',
+                'NAME': 'oxutils',
+                'USER': 'oxiliere',
+                'PASSWORD': 'oxiliere',
+                'HOST': 'localhost',
+                'PORT': 5432,
             }
         },
+        DATABASE_ROUTERS=[
+            'django_tenants.routers.TenantSyncRouter',
+        ],
+        TENANT_MODEL='oxiliere.Tenant',
+        TENANT_USER_MODEL='oxiliere.TenantUser',
         USE_TZ=True,
         DEFAULT_AUTO_FIELD='django.db.models.BigAutoField',
     )
     django.setup()
 
+# List of oxutils apps to generate migrations for
+OXUTILS_APPS = [
+    'audit',
+    'users',
+    'oxiliere',
+]
+
 if __name__ == '__main__':
-    print("Generating migrations for oxutils.audit...")
-    call_command('makemigrations', 'audit', '--verbosity', '2')
-    print("\nMigrations created successfully!")
+    for app in OXUTILS_APPS:
+        print(f"\n{'='*60}")
+        print(f"Generating migrations for oxutils.{app}...")
+        print('='*60)
+        try:
+            call_command('makemigrations', app, '--verbosity', '2')
+        except Exception as e:
+            print(f"Error generating migrations for {app}: {e}")
+            continue
+    
+    print("\n" + "="*60)
+    print("All migrations generated successfully!")
+    print("="*60)

@@ -28,14 +28,21 @@ class OxUtilsSettings(BaseSettings):
     jwt_signing_key: Optional[str] = None
     jwt_verifying_key: Optional[str] = None
     jwt_jwks_url: Optional[str] = None
-    jwt_access_token_key: str = Field('access_token') 
-    jwt_org_access_token_key: str = Field('org_access_token')
+    jwt_access_token_key: str = Field('access')
+    jwt_org_access_token_key: str = Field('org_access')
+    jwt_service_token_key: str = Field('service')
+    jwt_algorithm: Optional[str] = Field('RS256')
+    jwt_access_token_lifetime: int = Field(15) # minutes
+    jwt_service_token_lifetime: int = Field(3) # minutes
+    jwt_org_access_token_lifetime: int = Field(60) # minutes
 
 
     # AuditLog
     log_access: bool = Field(False)
     retention_delay: int = Field(7)  # one week
 
+    # logger
+    log_file_path: Optional[str] = Field('logs/oxiliere.log')
 
     # Static S3
     use_static_s3: bool = Field(False)

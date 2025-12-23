@@ -1,1 +1,0 @@
-JWT_ALGORITHM = ["RS256"]

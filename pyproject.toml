@@ -1,6 +1,6 @@
 [project]
 name = "oxutils"
-version = "0.1.6"
+version = "0.1.8"
 description = "Production-ready utilities for Django applications in the Oxiliere ecosystem"
 readme = "README.md"
 license = "Apache-2.0"
@@ -65,8 +65,24 @@ currency = [
 oxiliere = [
     "django-cacheops>=7.2",
     "django-tenants>=3.9.0",
+    "django-safedelete>=1.4.1",
+    "django-auditlog>=3.4.1",
 ]
 pdf = [
+    "weasyprint>=67.0",
+]
+
+jwt = [
+    "django-ninja-jwt>=5.4.2",
+]
+
+all = [
+    "bcc-rates>=1.1.0",
+    "django-cacheops>=7.2",
+    "django-tenants>=3.9.0",
+    "django-safedelete>=1.4.1",
+    "django-auditlog>=3.4.1",
+    "django-ninja-jwt>=5.4.2",
     "weasyprint>=67.0",
 ]
 
@@ -79,6 +95,7 @@ dev = [
     "coverage>=7.4.0",
     "pillow>=12.0.0",
     "ruff>=0.8.0",
+    "psycopg[binary]>=3.3.2",
 ]
 
 

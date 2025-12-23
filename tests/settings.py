@@ -33,6 +33,9 @@ INSTALLED_APPS = [
     'django_celery_results',
     'oxutils.audit',
     'oxutils.currency',
+    'oxutils.users',
+    'cacheops',
+    'oxutils.oxiliere',
 ]
 
 MIDDLEWARE = [
@@ -86,3 +89,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 OXI_SERVICE_NAME = 'test-service'
 OXI_LOG_ACCESS = False
 OXI_RETENTION_DELAY = 7
+
+# Django-tenants settings
+TENANT_MODEL = 'oxiliere.Tenant'
+TENANT_USER_MODEL = 'oxiliere.TenantUser'
+
+
+CACHEOPS = {
+    "*.*": {'ops': {}, 'timeout': 0}
+}

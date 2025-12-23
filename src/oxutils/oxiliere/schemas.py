@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID 
 from ninja import Schema
 from django.db import transaction
 from django.contrib.auth import get_user_model
@@ -20,7 +21,7 @@ class TenantSchema(Schema):
 
 
 class TenantOwnerSchema(Schema):
-    oxi_id: str
+    oxi_id: UUID
     email: str
 
 
@@ -38,7 +39,7 @@ class CreateTenantSchema(Schema):
             logger.info("tenant_exists", oxi_id=self.tenant.oxi_id)
             raise ValueError("Tenant with oxi_id {} already exists".format(self.tenant.oxi_id))
 
-        user = UserModel.objects.get_or_create(
+        user, _ = UserModel.objects.get_or_create(
             oxi_id=self.owner.oxi_id,
             defaults={
                 'email': self.owner.email,

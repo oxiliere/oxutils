@@ -1,6 +1,7 @@
-from ninja.permissions import BasePermission
-from django.conf import settings
+from ninja_extra.permissions import BasePermission
 from oxutils.oxiliere.models import TenantUser
+from oxutils.constants import OXILIERE_SERVICE_TOKEN
+from oxutils.jwt.tokens import OxilierServiceToken
 
 
 class TenantPermission(BasePermission):
@@ -8,7 +9,7 @@ class TenantPermission(BasePermission):
     Vérifie que l'utilisateur a accès au tenant actuel.
     L'utilisateur doit être authentifié et avoir un lien avec le tenant.
     """
-    def has_permission(self, request, view):
+    def has_permission(self, request, **kwargs):
         if not request.user or not request.user.is_authenticated:
             return False
         
@@ -17,8 +18,8 @@ class TenantPermission(BasePermission):
         
         # Vérifier que l'utilisateur a accès à ce tenant
         return TenantUser.objects.filter(
-            tenant=request.tenant,
-            user=request.user
+            tenant__pk=request.tenant.pk,
+            user__pk=request.user.pk
         ).exists()
 
 
@@ -26,17 +27,16 @@ class TenantOwnerPermission(BasePermission):
     """
     Vérifie que l'utilisateur est propriétaire (owner) du tenant actuel.
     """
-    def has_permission(self, request, view):
+    def has_permission(self, request, **kwargs):
         if not request.user or not request.user.is_authenticated:
             return False
         
         if not hasattr(request, 'tenant'):
             return False
         
-        # Vérifier que l'utilisateur est owner du tenant
         return TenantUser.objects.filter(
-            tenant=request.tenant,
-            user=request.user,
+            tenant__pk=request.tenant.pk,
+            user__pk=request.user.pk,
             is_owner=True
         ).exists()
 
@@ -45,22 +45,17 @@ class TenantAdminPermission(BasePermission):
     """
     Vérifie que l'utilisateur est admin ou owner du tenant actuel.
     """
-    def has_permission(self, request, view):
+    def has_permission(self, request, **kwargs):
         if not request.user or not request.user.is_authenticated:
             return False
         
         if not hasattr(request, 'tenant'):
             return False
         
-        # Vérifier que l'utilisateur est admin ou owner du tenant
         return TenantUser.objects.filter(
-            tenant=request.tenant,
-            user=request.user,
+            tenant__pk=request.tenant.pk,
+            user__pk=request.user.pk,
             is_admin=True
-        ).exists() or TenantUser.objects.filter(
-            tenant=request.tenant,
-            user=request.user,
-            is_owner=True
         ).exists()
 
 
@@ -69,7 +64,7 @@ class TenantUserPermission(BasePermission):
     Vérifie que l'utilisateur est un membre du tenant actuel.
     Alias de TenantPermission pour plus de clarté sémantique.
     """
-    def has_permission(self, request, view):
+    def has_permission(self, request, **kwargs):
         if not request.user or not request.user.is_authenticated:
             return False
         
@@ -77,8 +72,8 @@ class TenantUserPermission(BasePermission):
             return False
         
         return TenantUser.objects.filter(
-            tenant=request.tenant,
-            user=request.user
+            tenant__pk=request.tenant.pk,
+            user__pk=request.user.pk
         ).exists()
 
 
@@ -87,18 +82,15 @@ class OxiliereServicePermission(BasePermission):
     Vérifie que la requête provient d'un service interne Oxiliere.
     Utilise un token de service ou une clé API spéciale.
     """
-    def has_permission(self, request, view):
-        # Vérifier le header de service
-        service_token = request.headers.get('X-Oxiliere-Service-Token')
+    def has_permission(self, request, **kwargs):
+        custom = 'HTTP_' + OXILIERE_SERVICE_TOKEN.upper().replace('-', '_')
+        service_token = request.headers.get(OXILIERE_SERVICE_TOKEN) or request.META.get(custom)
         
         if not service_token:
             return False
         
-        # Comparer avec le token configuré dans settings
-        expected_token = getattr(settings, 'OXILIERE_SERVICE_TOKEN', None)
-        
-        if not expected_token:
+        try:
+            OxilierServiceToken(token=service_token)
+            return True
+        except Exception:
             return False
-        
-        return service_token == expected_token
-

@@ -9,7 +9,14 @@ from django_tenants.utils import (
     get_public_schema_name,
     get_public_schema_urlconf
 )
-from oxutils.constants import ORGANIZATION_HEADER_KEY
+from oxutils.settings import oxi_settings
+from oxutils.constants import (
+    ORGANIZATION_HEADER_KEY,
+    ORGANIZATION_TOKEN_COOKIE_KEY
+)
+from oxutils.jwt.models import TokenTenant
+from oxutils.jwt.tokens import OrganizationAccessToken
+
 
 class TenantMainMiddleware(MiddlewareMixin):
     TENANT_NOT_FOUND_EXCEPTION = Http404
@@ -42,16 +49,47 @@ class TenantMainMiddleware(MiddlewareMixin):
             from django.http import HttpResponseBadRequest
             return HttpResponseBadRequest('Missing X-Organization-ID header')
 
-        tenant_model = connection.tenant_model
-        try:
-            tenant = self.get_tenant(tenant_model, oxi_id)
-        except tenant_model.DoesNotExist:
-            default_tenant = self.no_tenant_found(request, oxi_id)
-            return default_tenant
+        # Try to get tenant from cookie token first
+        tenant_token = request.COOKIES.get(ORGANIZATION_TOKEN_COOKIE_KEY)
+        tenant = None
+        request._should_set_tenant_cookie = False
+        
+        if tenant_token:
+            tenant = TokenTenant.for_token(tenant_token)
+            # Verify the token's oxi_id matches the request
+            if tenant and tenant.oxi_id != oxi_id:
+                tenant = None
+        
+        # If no valid token, fetch from database
+        if not tenant:
+            tenant_model = connection.tenant_model
+            try:
+                tenant = self.get_tenant(tenant_model, oxi_id)
+                # Mark that we need to set the cookie in the response
+                request._should_set_tenant_cookie = True
+            except tenant_model.DoesNotExist:
+                default_tenant = self.no_tenant_found(request, oxi_id)
+                return default_tenant
 
         request.tenant = tenant
         connection.set_tenant(request.tenant)
         self.setup_url_routing(request)
+
+    def process_response(self, request, response):
+        """Set the tenant token cookie if needed."""
+        if hasattr(request, '_should_set_tenant_cookie') and request._should_set_tenant_cookie:
+            if hasattr(request, 'tenant') and not isinstance(request.tenant, TokenTenant):
+                # Generate token from DB tenant
+                token = OrganizationAccessToken.for_tenant(request.tenant)
+                response.set_cookie(
+                    key=ORGANIZATION_TOKEN_COOKIE_KEY,
+                    value=str(token),
+                    max_age=60 * oxi_settings.jwt_org_access_token_lifetime,
+                    httponly=True,
+                    secure=getattr(settings, 'SESSION_COOKIE_SECURE', False),
+                    samesite='Lax',
+                )
+        return response
 
     def no_tenant_found(self, request, oxi_id):
         """ What should happen if no tenant is found.

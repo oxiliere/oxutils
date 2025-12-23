@@ -27,8 +27,8 @@ class TestOxUtilsSettings:
     def test_jwt_default_values(self):
         """Test JWT default values."""
         settings = OxUtilsSettings(service_name='test')
-        assert settings.jwt_access_token_key == 'access_token'
-        assert settings.jwt_org_access_token_key == 'org_access_token'
+        assert settings.jwt_access_token_key == 'access'
+        assert settings.jwt_org_access_token_key == 'org_access'
         assert settings.jwt_signing_key is None
         assert settings.jwt_verifying_key is None
     
