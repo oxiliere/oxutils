@@ -12,8 +12,8 @@ from oxutils.oxiliere.enums import TenantStatus
 
 
 
-tenant_model = getattr(settings, 'TENANT_MODEL', 'oxutils.oxiliere.Tenant')
-tenant_user_model = getattr(settings, 'TENANT_USER_MODEL', 'oxutils.oxiliere.TenantUser')
+tenant_model = getattr(settings, 'TENANT_MODEL', 'oxiliere.Tenant')
+tenant_user_model = getattr(settings, 'TENANT_USER_MODEL', 'oxiliere.TenantUser')
 
 
 
@@ -73,9 +73,9 @@ class BaseTenantUser(BaseModelMixin):
 
 class Tenant(BaseTenant):
     class Meta(BaseTenant.Meta):
-        abstract = not tenant_model == 'oxutils.oxiliere.Tenant'
+        abstract = not tenant_model == 'oxiliere.Tenant'
 
 
 class TenantUser(BaseTenantUser):
     class Meta(BaseTenantUser.Meta):
-        abstract = not tenant_user_model == 'oxutils.oxiliere.TenantUser'
+        abstract = not tenant_user_model == 'oxiliere.TenantUser'

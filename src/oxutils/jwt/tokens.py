@@ -29,7 +29,7 @@ token_backend = TokenBackend(
 
 
 class OxilierServiceToken(Token):
-    type = oxi_settings.jwt_service_token_key
+    token_type = oxi_settings.jwt_service_token_key
     lifetime = timedelta(minutes=oxi_settings.jwt_service_token_lifetime)
 
 
@@ -44,7 +44,7 @@ class OxilierServiceToken(Token):
 
 
 class OrganizationAccessToken(Token):
-    type = oxi_settings.jwt_org_access_token_key
+    token_type = oxi_settings.jwt_org_access_token_key
     lifetime = timedelta(minutes=oxi_settings.jwt_org_access_token_lifetime)
 
     @classmethod
