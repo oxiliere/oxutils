@@ -1,4 +1,25 @@
-# utils.py
+from typing import Any
+from django.apps import apps
+from django.conf import settings
+
+
+
+
+def get_model(setting: str) -> Any:
+    try:
+        value = getattr(settings, setting)
+    except AttributeError:
+        raise ValueError(f"Model `{setting}` is not a valid Tenant model.")
+
+    return apps.get_model(value)
+
+
+def get_tenant_model() -> Any:
+    return get_model('TENANT_MODEL')
+
+def get_tenant_user_model() -> Any:
+    return get_model('TENANT_USER_MODEL')
+
 
 def oxid_to_schema_name(oxid: str) -> str:
     """

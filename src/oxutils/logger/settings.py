@@ -1,5 +1,5 @@
 import structlog
-
+from oxutils.settings import oxi_settings
 
 
 
@@ -29,7 +29,7 @@ LOGGING = {
         },
         "json_file": {
             "class": "logging.handlers.WatchedFileHandler",
-            "filename": "logs/json.log",
+            "filename": oxi_settings.log_file_path,
             "formatter": "json_formatter",
         },
     },
