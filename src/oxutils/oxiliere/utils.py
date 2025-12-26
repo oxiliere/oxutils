@@ -1,6 +1,7 @@
 from typing import Any
 from django.apps import apps
 from django.conf import settings
+from .constants import OXI_SYSTEM_TENANT
 
 
 
@@ -20,6 +21,15 @@ def get_tenant_model() -> Any:
 def get_tenant_user_model() -> Any:
     return get_model('TENANT_USER_MODEL')
 
+def is_system_tenant(tenant: Any) -> bool:
+    return tenant.schema_name == get_system_tenant_schema_name()
+
+def get_system_tenant_schema_name():
+    system_schema_name = oxid_to_schema_name(
+        getattr(settings, 'OXI_SYSTEM_TENANT', OXI_SYSTEM_TENANT)
+    )
+
+    return system_schema_name
 
 def oxid_to_schema_name(oxid: str) -> str:
     """

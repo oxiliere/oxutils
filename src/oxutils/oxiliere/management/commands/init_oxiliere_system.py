@@ -3,9 +3,20 @@ from django.core.management.base import BaseCommand
 from django.conf import settings
 from django.db import transaction
 from django.contrib.auth import get_user_model
-from django_tenants.utils import get_tenant_model
-from oxutils.oxiliere.models import Domain, TenantUser
-from oxutils.oxiliere.utils import oxid_to_schema_name
+from django_tenants.utils import (
+    get_tenant_model,
+    get_tenant_domain_model
+)
+from oxutils.oxiliere.utils import (
+    oxid_to_schema_name,
+    get_tenant_user_model
+)
+from oxutils.oxiliere.constants import (
+    OXI_SYSTEM_TENANT,
+    OXI_SYSTEM_DOMAIN,
+    OXI_SYSTEM_OWNER_EMAIL
+)
+
 
 
 
@@ -18,10 +29,10 @@ class Command(BaseCommand):
         UserModel = get_user_model()
         
         # Configuration du tenant système depuis settings
-        system_slug = getattr(settings, 'OXI_SYSTEM_TENANT', 'tenant_oxisystem')
+        system_slug = getattr(settings, 'OXI_SYSTEM_TENANT', OXI_SYSTEM_TENANT)
         schema_name = oxid_to_schema_name(system_slug)
-        system_domain = getattr(settings, 'OXI_SYSTEM_DOMAIN', 'system.oxiliere.com')
-        owner_email = getattr(settings, 'OXI_SYSTEM_OWNER_EMAIL', 'dev@oxiliere.com')
+        system_domain = getattr(settings, 'OXI_SYSTEM_DOMAIN', OXI_SYSTEM_DOMAIN)
+        owner_email = getattr(settings, 'OXI_SYSTEM_OWNER_EMAIL', OXI_SYSTEM_OWNER_EMAIL)
         owner_oxi_id = uuid.uuid4()
         
         self.stdout.write(self.style.WARNING(f'Initialisation du tenant système...'))
@@ -44,7 +55,8 @@ class Command(BaseCommand):
         
         # Créer le domaine pour le tenant système
         self.stdout.write(f'Création du domaine: {system_domain}')
-        domain = Domain.objects.create(
+    
+        domain = get_tenant_domain_model().objects.create(
             domain=system_domain,
             tenant=tenant,
             is_primary=True
@@ -66,7 +78,7 @@ class Command(BaseCommand):
         
         # Lier le superuser au tenant système
         self.stdout.write('Liaison du superuser au tenant système')
-        tenant_user, created = TenantUser.objects.get_or_create(
+        tenant_user, created = get_tenant_user_model().objects.get_or_create(
             tenant=tenant,
             user=superuser,
             defaults={

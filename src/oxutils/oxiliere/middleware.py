@@ -7,15 +7,21 @@ from django.utils.deprecation import MiddlewareMixin
 
 from django_tenants.utils import (
     get_public_schema_name,
-    get_public_schema_urlconf
+    get_public_schema_urlconf,
+    get_tenant_types,
+    has_multi_type_tenants,
 )
 from oxutils.settings import oxi_settings
 from oxutils.constants import (
     ORGANIZATION_HEADER_KEY,
     ORGANIZATION_TOKEN_COOKIE_KEY
 )
+from oxutils.oxiliere.utils import is_system_tenant
 from oxutils.jwt.models import TokenTenant
 from oxutils.jwt.tokens import OrganizationAccessToken
+from oxutils.oxiliere.context import set_current_tenant_schema_name
+
+
 
 
 class TenantMainMiddleware(MiddlewareMixin):
@@ -45,9 +51,6 @@ class TenantMainMiddleware(MiddlewareMixin):
         connection.set_schema_to_public()
         
         oxi_id = self.get_org_id_from_request(request)
-        if not oxi_id:
-            from django.http import HttpResponseBadRequest
-            return HttpResponseBadRequest('Missing X-Organization-ID header')
 
         # Try to get tenant from cookie token first
         tenant_token = request.COOKIES.get(ORGANIZATION_TOKEN_COOKIE_KEY)
@@ -57,21 +60,31 @@ class TenantMainMiddleware(MiddlewareMixin):
         if tenant_token:
             tenant = TokenTenant.for_token(tenant_token)
             # Verify the token's oxi_id matches the request
-            if tenant and tenant.oxi_id != oxi_id:
+            if not is_system_tenant(tenant) and tenant.oxi_id != oxi_id:
                 tenant = None
         
         # If no valid token, fetch from database
         if not tenant:
-            tenant_model = connection.tenant_model
-            try:
-                tenant = self.get_tenant(tenant_model, oxi_id)
-                # Mark that we need to set the cookie in the response
-                request._should_set_tenant_cookie = True
-            except tenant_model.DoesNotExist:
-                default_tenant = self.no_tenant_found(request, oxi_id)
-                return default_tenant
+            if oxi_id: # fetch with oxi_id on tenant
+                tenant_model = connection.tenant_model
+                try:
+                    tenant = self.get_tenant(tenant_model, oxi_id)
+                    # Mark that we need to set the cookie in the response
+                    request._should_set_tenant_cookie = True
+                except tenant_model.DoesNotExist:
+                    default_tenant = self.no_tenant_found(request, oxi_id)
+                    return default_tenant
+            else: # try to return the system tenant
+                try:
+                    from oxutils.oxiliere.caches import get_system_tenant
+                    tenant = get_system_tenant()
+                    request._should_set_tenant_cookie = True
+                except Exception as e:
+                    from django.http import HttpResponseBadRequest
+                    return HttpResponseBadRequest('Missing X-Organization-ID header')
 
         request.tenant = tenant
+        set_current_tenant_schema_name(tenant.schema_name)
         connection.set_tenant(request.tenant)
         self.setup_url_routing(request)
 

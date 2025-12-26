@@ -57,6 +57,7 @@ class User(AbstractUser, SafeDeleteModel, BaseModelMixin):
 
     oxi_id = models.UUIDField(unique=True)  # id venant de auth.oxi.com
     email = models.EmailField(unique=True)
+    role = models.CharField(max_length=25, unique=True)
     is_active = models.BooleanField(default=True)
     subscription_plan = models.CharField(max_length=255, null=True, blank=True)
     subscription_status = models.CharField(max_length=255, null=True, blank=True)

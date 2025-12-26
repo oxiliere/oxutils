@@ -42,6 +42,7 @@ class CreateTenantSchema(Schema):
         user, _ = UserModel.objects.get_or_create(
             oxi_id=self.owner.oxi_id,
             defaults={
+                'id': self.owner.oxi_id,
                 'email': self.owner.email,
             }
         )
