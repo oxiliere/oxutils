@@ -40,6 +40,7 @@ if not settings.configured:
             'oxutils.audit',
             'oxutils.users',
             'oxutils.oxiliere',
+            'oxutils.permissions',
         ],
         INSTALLED_APPS = [
             'django.contrib.contenttypes',
@@ -49,7 +50,8 @@ if not settings.configured:
             'cacheops',
             'oxutils.audit',
             'oxutils.users',
-            # 'oxutils.oxiliere',
+            'oxutils.oxiliere',
+            'oxutils.permissions',
         ],
         CACHEOPS_REDIS = "redis://localhost:6379/1",
         CACHEOPS = {
@@ -79,7 +81,8 @@ if not settings.configured:
 OXUTILS_APPS = [
     'audit',
     'users',
-    'oxiliere',
+    # 'oxiliere',
+    'permissions',
 ]
 
 if __name__ == '__main__':

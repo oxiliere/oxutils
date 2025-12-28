@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'oxutils.currency',
     'oxutils.users',
     'cacheops',
+    'oxutils.permissions',
     'oxutils.oxiliere',
 ]
 
@@ -65,8 +66,15 @@ TEMPLATES = [
 # Database
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': ':memory:',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'oxutils_test',
+        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'postgres'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'TEST': {
+            'NAME': 'oxutils_test_db',
+        }
     }
 }
 
@@ -98,3 +106,10 @@ TENANT_USER_MODEL = 'oxiliere.TenantUser'
 CACHEOPS = {
     "*.*": {'ops': {}, 'timeout': 0}
 }
+
+# Permissions settings
+ACCESS_MANAGER_SCOPE = 'access'
+ACCESS_MANAGER_GROUP = 'manager'
+ACCESS_MANAGER_CONTEXT = {}
+ACCESS_SCOPES = ['access', 'articles', 'users', 'comments']
+CACHE_CHECK_PERMISSION = False

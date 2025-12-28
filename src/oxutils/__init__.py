@@ -8,9 +8,10 @@ This package provides:
 - Celery integration
 - Django model mixins
 - Custom exceptions
+- Permission management
 """
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 from oxutils.settings import oxi_settings
 from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE

@@ -1,6 +1,11 @@
 from django.conf import settings
 from cacheops import cached_as, cached
-from oxutils.oxiliere.utils import get_tenant_model, get_tenant_user_model
+from oxutils.oxiliere.utils import (
+    get_tenant_model,
+    get_tenant_user_model,
+    get_system_tenant_schema_name
+)
+
 
 
 
@@ -28,9 +33,5 @@ def get_tenant_user(oxi_org_id: str, oxi_user_id: str):
 
 @cached(timeout=60*15)
 def get_system_tenant():
-    from oxutils.oxiliere.utils import oxid_to_schema_name
-
-    system_schema_name = oxid_to_schema_name(
-        getattr(settings, 'OXI_SYSTEM_TENANT', 'tenant_oxisystem')
-    )
-    return get_tenant_model().objects.get(schema_name=system_schema_name)
+    schema_name = get_system_tenant_schema_name()
+    return get_tenant_model().objects.get(schema_name=schema_name)
