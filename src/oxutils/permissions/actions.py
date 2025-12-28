@@ -21,9 +21,11 @@ def collapse_actions(actions: list[str]) -> set[str]:
     actions = set(actions)
     roots = set(actions)
 
-    for action, implied in ACTION_HIERARCHY.items():
-        if action in roots and implied & actions:
-            roots.discard(next(iter(implied & actions)))
+    # Remove all implied actions from roots
+    for action in list(roots):
+        if action in ACTION_HIERARCHY:
+            implied = ACTION_HIERARCHY[action]
+            roots -= implied
 
     return roots
 

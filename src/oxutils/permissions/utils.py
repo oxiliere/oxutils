@@ -1,10 +1,16 @@
 from typing import Optional, Any
-from django.db.models import QuerySet, Q
+from django.db.models import Q
 from django.db import transaction
 from django.contrib.auth.models import AbstractBaseUser
 
-from .models import Grant, RoleGrant, Group
-from .actions import expand_actions, collapse_actions
+from .models import Grant, RoleGrant, Group, UserGroup, Role
+from .actions import expand_actions
+from .exceptions import (
+    RoleNotFoundException,
+    GroupNotFoundException,
+    GrantNotFoundException,
+    GroupAlreadyAssignedException
+)
 
 
 
@@ -14,7 +20,8 @@ def assign_role(
     user: AbstractBaseUser,
     role: str,
     *,
-    by: Optional[AbstractBaseUser] = None
+    by: Optional[AbstractBaseUser] = None,
+    user_group: Optional[UserGroup] = None
 ) -> None:
     """
     Assigne un rôle à un utilisateur en créant ou mettant à jour les grants correspondants.
@@ -23,17 +30,38 @@ def assign_role(
         user: L'utilisateur à qui assigner le rôle
         role: Le slug du rôle à assigner
         by: L'utilisateur qui effectue l'assignation (pour traçabilité)
+        user_group: Le UserGroup associé si le rôle est assigné via un groupe
+        
+    Raises:
+        RoleNotFoundException: Si le rôle n'existe pas
     """
-    role_grants: QuerySet[RoleGrant] = RoleGrant.objects.filter(role__slug=role)
+    try:
+        role_obj = Role.objects.get(slug=role)
+    except Role.DoesNotExist:
+        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
+    
+    # Filtrer les RoleGrants selon le groupe si fourni
+    if user_group:
+        # Si assigné via un groupe, utiliser les RoleGrants spécifiques au groupe ou génériques
+        role_grants = RoleGrant.objects.filter(
+            role__slug=role
+        ).filter(
+            Q(group=user_group.group) | Q(group__isnull=True)
+        )
+    else:
+        # Si assigné directement, utiliser uniquement les RoleGrants génériques
+        role_grants = RoleGrant.objects.filter(role__slug=role, group__isnull=True)
 
     for rg in role_grants:
         Grant.objects.update_or_create(
             user=user,
             scope=rg.scope,
-            role=role,
+            role=role_obj,
             defaults={
                 "actions": expand_actions(rg.actions),
                 "context": rg.context,
+                "user_group": user_group,
+                "created_by": by,
             }
         )
 
@@ -47,28 +75,97 @@ def revoke_role(user: AbstractBaseUser, role: str) -> tuple[int, dict[str, int]]
         
     Returns:
         Tuple contenant le nombre d'objets supprimés et un dictionnaire des types supprimés
+        
+    Raises:
+        RoleNotFoundException: Si le rôle n'existe pas
     """
+    try:
+        role_obj = Role.objects.get(slug=role)
+    except Role.DoesNotExist:
+        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
+    
     return Grant.objects.filter(
         user__pk=user.pk,
         role__slug=role
     ).delete()
 
 
-def assign_group(user: AbstractBaseUser, group: str) -> None:
+@transaction.atomic
+def assign_group(user: AbstractBaseUser, group: str, by: Optional[AbstractBaseUser] = None) -> UserGroup:
     """
     Assigne tous les rôles d'un groupe à un utilisateur.
     
     Args:
         user: L'utilisateur à qui assigner le groupe
         group: Le slug du groupe à assigner
+        by: L'utilisateur qui effectue l'assignation (pour traçabilité)
+        
+    Returns:
+        L'objet UserGroup créé ou existant
         
     Raises:
-        Group.DoesNotExist: Si le groupe n'existe pas
+        GroupNotFoundException: Si le groupe n'existe pas
+        GroupAlreadyAssignedException: Si le groupe est déjà assigné
     """
-    _group: Group = Group.objects.get(slug=group)
+    if UserGroup.objects.filter(user=user, group__slug=group).exists():
+        raise GroupAlreadyAssignedException(
+            detail=f"Le groupe '{group}' est déjà assigné à l'utilisateur"
+        )
+    
+    try:
+        _group: Group = Group.objects.get(slug=group)
+    except Group.DoesNotExist:
+        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas")
+    
+    # Créer le UserGroup d'abord
+    user_group, created = UserGroup.objects.get_or_create(user=user, group=_group)
 
+    # Assigner tous les rôles du groupe avec le lien vers UserGroup
     for role in _group.roles.all():
-        assign_role(user, role.slug)
+        assign_role(user, role.slug, by=by, user_group=user_group)
+    
+    return user_group
+
+
+@transaction.atomic
+def revoke_group(user: AbstractBaseUser, group: str) -> tuple[int, dict[str, int]]:
+    """
+    Révoque tous les rôles d'un groupe d'un utilisateur.
+    Supprime tous les grants liés au UserGroup et le UserGroup lui-même.
+    
+    Args:
+        user: L'utilisateur dont on révoque le groupe
+        group: Le slug du groupe à révoquer
+        
+    Returns:
+        Tuple contenant le nombre d'objets supprimés et un dictionnaire des types supprimés
+        
+    Raises:
+        GroupNotFoundException: Si le groupe n'existe pas
+        GroupNotFoundException: Si le groupe n'est pas assigné à l'utilisateur
+    """
+    try:
+        _group: Group = Group.objects.get(slug=group)
+    except Group.DoesNotExist:
+        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas")
+    
+    try:
+        user_group = UserGroup.objects.get(user=user, group=_group)
+    except UserGroup.DoesNotExist:
+        raise GroupNotFoundException(
+            detail=f"Le groupe '{group}' n'est pas assigné à l'utilisateur"
+        )
+    
+    # Supprimer tous les grants liés à ce UserGroup
+    grants_deleted, grants_info = Grant.objects.filter(
+        user=user,
+        user_group=user_group
+    ).delete()
+    
+    # Supprimer le UserGroup
+    user_group.delete()
+    
+    return grants_deleted, grants_info
 
 
 @transaction.atomic
@@ -86,36 +183,160 @@ def override_grant(
         user: L'utilisateur dont on modifie le grant
         scope: Le scope du grant à modifier
         remove_actions: Liste des actions à retirer (seront expandées)
+        
+    Raises:
+        GrantNotFoundException: Si le grant n'existe pas
     """
-    grant: Optional[Grant] = Grant.objects.filter(user__pk=user.pk, scope=scope).first()
+    grant: Optional[Grant] = Grant.objects.select_related("user_group", "role").filter(user__pk=user.pk, scope=scope).first()
     if not grant:
-        return
+        raise GrantNotFoundException(
+            detail=f"Aucun grant trouvé pour l'utilisateur sur le scope '{scope}'"
+        )
 
-    # Réduire les actions aux actions racines
-    root_actions: set[str] = collapse_actions(grant.actions)
-    # Expander les actions à retirer pour inclure leurs dépendances
-    expanded_remove: list[str] = expand_actions(remove_actions)
+    # Travailler avec les actions expandées du grant
+    current_actions: set[str] = set(grant.actions)
+    # Ne PAS expander les actions à retirer - on retire seulement ce qui est demandé
+    actions_to_remove: set[str] = set(remove_actions)
 
-    # Retirer les actions demandées
-    root_actions = {
-        a for a in root_actions if a not in expanded_remove
-    }
+    # Retirer les actions demandées des actions actuelles
+    remaining_actions = current_actions - actions_to_remove
 
     # Si plus d'actions, supprimer le grant
-    if not root_actions:
+    if not remaining_actions:
+        user_group = grant.user_group
         grant.delete()
+        
+        # Si le grant était lié à un UserGroup, vérifier s'il reste des grants pour ce groupe
+        if user_group:
+            remaining_grants = Grant.objects.filter(
+                user=user,
+                user_group=user_group
+            ).exists()
+            
+            # Si plus aucun grant lié à ce UserGroup, supprimer le UserGroup
+            if not remaining_grants:
+                user_group.delete()
+        
         return
 
-    # Mettre à jour le grant avec les nouvelles actions
-    grant.actions = expand_actions(list(root_actions))
+    # Mettre à jour le grant avec les nouvelles actions (garder la forme expandée)
+    grant.actions = sorted(remaining_actions)
     grant.role = None  # Le grant devient personnalisé
-    grant.save(update_fields=["actions", "role", 'updated_at'])
+    grant.save(update_fields=["actions", "role", "updated_at"])
+
+
+@transaction.atomic
+def group_sync(group_slug: str) -> dict[str, int]:
+    """
+    Synchronise les grants de tous les utilisateurs d'un groupe après modification des RoleGrants.
+    Réapplique tous les rôles du groupe pour assurer la cohérence des permissions héritées.
+    
+    Cette fonction doit être appelée après :
+    - Création/modification/suppression d'un RoleGrant lié à un groupe
+    - Ajout/suppression d'un rôle dans un groupe
+    
+    Args:
+        group_slug: Le slug du groupe à synchroniser
+        
+    Returns:
+        Dictionnaire avec les statistiques:
+        {
+            "users_synced": nombre d'utilisateurs synchronisés,
+            "grants_updated": nombre de grants mis à jour/créés
+        }
+        
+    Raises:
+        GroupNotFoundException: Si le groupe n'existe pas
+        
+    Example:
+        >>> # Après modification d'un RoleGrant
+        >>> group_sync("admins")
+        {"users_synced": 5, "grants_updated": 15}
+    """
+    try:
+        group = Group.objects.prefetch_related('roles').get(slug=group_slug)
+    except Group.DoesNotExist:
+        raise GroupNotFoundException(detail=f"Le groupe '{group_slug}' n'existe pas")
+    
+    # Récupérer tous les UserGroups liés à ce groupe
+    user_groups = UserGroup.objects.filter(group=group).select_related('user')
+    
+    stats = {
+        "users_synced": 0,
+        "grants_updated": 0
+    }
+    
+    # Pour chaque utilisateur du groupe
+    for user_group in user_groups:
+        user = user_group.user
+        
+        # Récupérer les scopes avec des grants personnalisés (role=None) pour cet utilisateur et ce UserGroup
+        # Ces scopes doivent être exclus de la synchronisation
+        overridden_scopes = set(
+            Grant.objects.filter(
+                user=user,
+                user_group=user_group,
+                role__isnull=True
+            ).values_list('scope', flat=True)
+        )
+        
+        # Supprimer uniquement les grants liés à ce UserGroup qui ont un rôle
+        # Les grants avec role=None sont des grants personnalisés (overridés) et doivent être préservés
+        deleted_count, _ = Grant.objects.filter(
+            user=user,
+            user_group=user_group,
+            role__isnull=False  # Ne supprimer que les grants avec un rôle
+        ).delete()
+        
+        # Préparer les grants à créer en bulk
+        grants_to_create = []
+        
+        # Réassigner tous les rôles du groupe
+        for role in group.roles.all():
+            # Récupérer les RoleGrants pour ce rôle (spécifiques au groupe + génériques)
+            role_grants = RoleGrant.objects.filter(
+                role=role
+            ).filter(
+                Q(group=group) | Q(group__isnull=True)
+            )
+            
+            # Préparer les grants correspondants, en excluant les scopes overridés
+            for rg in role_grants:
+                # Ignorer ce scope s'il a un grant personnalisé
+                if rg.scope in overridden_scopes:
+                    continue
+                
+                grants_to_create.append(
+                    Grant(
+                        user=user,
+                        scope=rg.scope,
+                        role=role,
+                        actions=expand_actions(rg.actions),
+                        context=rg.context,
+                        user_group=user_group,
+                    )
+                )
+        
+        # Créer tous les grants en une seule requête
+        if grants_to_create:
+            Grant.objects.bulk_create(
+                grants_to_create,
+                update_conflicts=True,
+                unique_fields=["user", "scope", "role", "user_group"],
+                update_fields=["actions", "context", "updated_at"]
+            )
+            stats["grants_updated"] += len(grants_to_create)
+        
+        stats["users_synced"] += 1
+    
+    return stats
 
 
 def check(
     user: AbstractBaseUser,
     scope: str,
     required: list[str],
+    group: Optional[str] = None,
     **context: Any
 ) -> bool:
     """
@@ -127,6 +348,7 @@ def check(
         user: L'utilisateur dont on vérifie les permissions
         scope: Le scope à vérifier (ex: 'articles', 'users', 'comments')
         required: Liste des actions requises (ex: ['r'], ['w', 'r'], ['d'])
+        group: Slug du groupe optionnel pour filtrer les grants par groupe
         **context: Contexte additionnel pour filtrer les grants (clés JSON)
         
     Returns:
@@ -139,6 +361,9 @@ def check(
         >>> # Vérifier avec contexte
         >>> check(user, 'articles', ['w'], tenant_id=123)
         False
+        >>> # Vérifier dans le contexte d'un groupe spécifique
+        >>> check(user, 'articles', ['w'], group='staff')
+        True
         
     Note:
         Les actions sont automatiquement expandées lors de la création du grant,
@@ -151,6 +376,10 @@ def check(
         actions__contains=list(required),
     )
     
+    # Filtrer par groupe si spécifié
+    if group:
+        grant_filter &= Q(user_group__group__slug=group)
+    
     # Ajouter les filtres de contexte si fournis
     if context:
         grant_filter &= Q(context__contains=context)
@@ -158,6 +387,80 @@ def check(
     # Vérifier l'existence d'un grant correspondant
     return Grant.objects.filter(grant_filter).exists()
 
+def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
+    """
+    Vérifie si un utilisateur possède les permissions requises à partir d'une chaîne formatée.
+    
+    Args:
+        user: L'utilisateur dont on vérifie les permissions
+        perm: Chaîne de permission au format "<scope>:<actions>:<group>?key=value&key2=value2"
+              - scope: Le scope à vérifier (ex: 'articles')
+              - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
+              - group: (Optionnel) Slug du groupe
+              - query params: (Optionnel) Contexte sous forme de query parameters
+        **context: Contexte additionnel pour filtrer les grants (fusionné avec les query params)
+        
+    Returns:
+        True si l'utilisateur possède les permissions requises, False sinon
+        
+    Example:
+        >>> # Vérifier lecture sur articles
+        >>> str_check(user, 'articles:r')
+        True
+        >>> # Vérifier écriture sur articles dans le groupe staff
+        >>> str_check(user, 'articles:w:staff')
+        True
+        >>> # Avec contexte via query params
+        >>> str_check(user, 'articles:w?tenant_id=123&status=published')
+        False
+        >>> # Avec groupe et contexte
+        >>> str_check(user, 'articles:w:staff?tenant_id=123')
+        True
+        >>> # Contexte mixte (query params + kwargs)
+        >>> str_check(user, 'articles:w?tenant_id=123', level=2)
+        False
+    """
+    from .caches import cache_check
+
+    # Séparer la partie principale des query params
+    if '?' in perm:
+        from urllib.parse import parse_qs
+
+        main_part, query_string = perm.split('?', 1)
+        # Parser les query params
+        parsed_qs = parse_qs(query_string)
+        # Convertir en dict simple (prendre la première valeur de chaque liste)
+        query_context = {k: v[0] if len(v) == 1 else v for k, v in parsed_qs.items()}
+        # Convertir les valeurs numériques
+        for k, v in query_context.items():
+            if isinstance(v, str) and v.isdigit():
+                query_context[k] = int(v)
+    else:
+        main_part = perm
+        query_context = {}
+    
+    # Parser la partie principale
+    parts = main_part.split(':')
+    
+    if len(parts) < 2:
+        raise ValueError(
+            f"Format de permission invalide: '{perm}'. "
+            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<group>' "
+            "ou '<scope>:<actions>:<group>?key=value&key2=value2'"
+        )
+    
+    scope = parts[0]
+    actions_str = parts[1]
+    group = parts[2] if len(parts) > 2 else None
+    
+    # Convertir la chaîne d'actions en liste
+    # 'rwd' -> ['r', 'w', 'd']
+    required = list(actions_str)
+    
+    # Fusionner les contextes (kwargs ont priorité sur query params)
+    final_context = {**query_context, **context}
+    
+    return cache_check(user, scope, required, group=group, **final_context)
 
 def load_preset(*, force: bool = False) -> dict[str, int]:
     """
@@ -203,12 +506,14 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
                 "scope": "users",
                 "actions": ["r", "w", "d"],
                 "context": {}
+                # "group": "slug"  # Optionnel: si absent ou None, RoleGrant générique
             },
             {
                 "role": "accountant",
                 "scope": "users",
                 "actions": ["r"],
-                "context": {}
+                "context": {},
+                "group": "accountants"  # RoleGrant spécifique au groupe accountants
             }
         ]
     }
@@ -297,9 +602,21 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
                 f"Le rôle '{rg_data['role']}' n'existe pas pour le role_grant"
             )
         
+        # Gérer le groupe optionnel
+        group_obj = None
+        group_slug = rg_data.get('group')
+        if group_slug:
+            group_obj = groups_cache.get(group_slug)
+            if group_obj is None:
+                raise ValueError(
+                    f"Le groupe '{group_slug}' n'existe pas pour le role_grant"
+                )
+        
+        # Utiliser get_or_create avec la contrainte complète (role, scope, group)
         role_grant, created = RoleGrant.objects.get_or_create(
             role=role,
             scope=rg_data['scope'],
+            group=group_obj,
             defaults={
                 'actions': rg_data.get('actions', []),
                 'context': rg_data.get('context', {})

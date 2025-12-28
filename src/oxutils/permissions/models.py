@@ -36,11 +36,44 @@ class Group(TimestampMixin):
         return self.slug
 
 
+class UserGroup(TimestampMixin):
+    """
+    A user group that links users to groups.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="user_groups",
+    )
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="user_groups",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'group'], name='unique_user_group')
+        ]
+        indexes = [
+            models.Index(fields=['user', 'group']),
+        ]
+
+
 class RoleGrant(models.Model):
     """
     A grant template of permissions to a role.
+    Peut être lié à un groupe spécifique pour des comportements distincts.
     """
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="grants")
+    group = models.ForeignKey(
+        Group,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="role_grants",
+        help_text="Groupe optionnel pour des comportements spécifiques"
+    )
 
     scope = models.CharField(max_length=100)
     actions = ArrayField(models.CharField(max_length=5))
@@ -52,12 +85,18 @@ class RoleGrant(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["role", "scope"], name="unique_role_scope"
+                fields=["role", "scope", "group"], name="unique_role_scope_group"
             )
+        ]
+        indexes = [
+            models.Index(fields=["role"]),
+            models.Index(fields=["group"]),
+            models.Index(fields=["role", "group"]),
         ]
 
     def __str__(self):
-        return f"{self.role}:{self.scope}:{self.actions}"
+        group_str = f"[{self.group.slug}]" if self.group else ""
+        return f"{self.role}:{self.scope}{group_str}:{self.actions}"
 
 
     def save(self, *args, **kwargs):
@@ -80,6 +119,24 @@ class Grant(TimestampMixin):
         Role,
         null=True,
         blank=True,
+        related_name="grants",
+        on_delete=models.SET_NULL,
+    )
+    
+    # Lien avec UserGroup pour tracer l'origine du grant
+    user_group = models.ForeignKey(
+        'UserGroup',
+        null=True,
+        blank=True,
+        related_name="grants",
+        on_delete=models.SET_NULL,
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="created_grants",
         on_delete=models.SET_NULL,
     )
 
@@ -91,11 +148,12 @@ class Grant(TimestampMixin):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "scope", "role"], name="unique_user_scope_role"
+                fields=["user", "scope", "role", "user_group"], name="unique_user_scope_role"
             )
         ]
         indexes = [
             models.Index(fields=["user", "scope"]),
+            models.Index(fields=["user_group"]),
             GinIndex(fields=["actions"]),
             GinIndex(fields=["context"]),
         ]

@@ -235,6 +235,14 @@ class AssignGroupSchema(Schema):
     group: str
 
 
+class RevokeGroupSchema(Schema):
+    """
+    Schéma pour révoquer un groupe d'un utilisateur.
+    """
+    user_id: int
+    group: str
+
+
 class OverrideGrantSchema(Schema):
     """
     Schéma pour modifier un grant en retirant des actions.
@@ -248,6 +256,14 @@ class OverrideGrantSchema(Schema):
     def validate_actions(cls, v: list[str]) -> list[str]:
         """Valide que toutes les actions sont valides."""
         return validate_actions_list(v)
+
+
+class GroupSyncResponseSchema(Schema):
+    """
+    Schéma pour la réponse de la synchronisation d'un groupe.
+    """
+    users_synced: int
+    grants_updated: int
 
 
 class PresetLoadResponseSchema(Schema):

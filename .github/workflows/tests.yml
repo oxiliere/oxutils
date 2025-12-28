@@ -23,6 +23,20 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
+      
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: oxutils_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     
     steps:
     - uses: actions/checkout@v4
@@ -42,6 +56,11 @@ jobs:
         uv sync --all-groups --all-extras
     
     - name: Run tests with coverage
+      env:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
       run: |
         uv run pytest --cov=oxutils --cov-report=xml --cov-report=term-missing
     

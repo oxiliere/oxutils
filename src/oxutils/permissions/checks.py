@@ -1,0 +1,188 @@
+"""
+Django system checks for permissions configuration.
+
+Example configuration in settings.py:
+
+    ACCESS_MANAGER_SCOPE = "access"
+    ACCESS_MANAGER_GROUP = "manager"  # or None
+    ACCESS_MANAGER_CONTEXT = {}
+
+    CACHE_CHECK_PERMISSION = False
+    
+    ACCESS_SCOPES = [
+        "users",
+        "articles",
+        "comments"
+    ]
+    
+    PERMISSION_PRESET = {
+        "roles": [...],
+        "group": [...],
+        "role_grants": [...]
+    }
+"""
+
+from django.conf import settings
+from django.core.checks import Error, Warning, register, Tags
+
+
+@register(Tags.security)
+def check_permission_settings(app_configs, **kwargs):
+    """
+    Validate permission-related settings.
+    
+    Checks:
+    - ACCESS_MANAGER_SCOPE is defined
+    - ACCESS_MANAGER_GROUP is defined (can be None)
+    - ACCESS_MANAGER_CONTEXT is defined
+    - ACCESS_SCOPES is defined
+    - PERMISSION_PRESET is defined
+    - ACCESS_MANAGER_SCOPE exists in ACCESS_SCOPES
+    - ACCESS_MANAGER_GROUP exists in PERMISSION_PRESET groups (if not None)
+    """
+    errors = []
+    
+    # Check ACCESS_MANAGER_SCOPE
+    if not hasattr(settings, 'ACCESS_MANAGER_SCOPE'):
+        errors.append(
+            Error(
+                'ACCESS_MANAGER_SCOPE is not defined',
+                hint='Add ACCESS_MANAGER_SCOPE = "access" to your settings',
+                id='permissions.E001',
+            )
+        )
+    
+    # Check ACCESS_MANAGER_GROUP
+    if not hasattr(settings, 'ACCESS_MANAGER_GROUP'):
+        errors.append(
+            Error(
+                'ACCESS_MANAGER_GROUP is not defined',
+                hint='Add ACCESS_MANAGER_GROUP = "manager" or None to your settings',
+                id='permissions.E002',
+            )
+        )
+    
+    # Check ACCESS_MANAGER_CONTEXT
+    if not hasattr(settings, 'ACCESS_MANAGER_CONTEXT'):
+        errors.append(
+            Error(
+                'ACCESS_MANAGER_CONTEXT is not defined',
+                hint='Add ACCESS_MANAGER_CONTEXT = {} to your settings',
+                id='permissions.E003',
+            )
+        )
+    
+    # Check ACCESS_SCOPES
+    if not hasattr(settings, 'ACCESS_SCOPES'):
+        errors.append(
+            Error(
+                'ACCESS_SCOPES is not defined',
+                hint='Add ACCESS_SCOPES = ["users", "articles", ...] to your settings',
+                id='permissions.E004',
+            )
+        )
+    else:
+        # Validate ACCESS_SCOPES is a list
+        if not isinstance(settings.ACCESS_SCOPES, list):
+            errors.append(
+                Error(
+                    'ACCESS_SCOPES must be a list',
+                    hint='Set ACCESS_SCOPES = ["users", "articles", ...]',
+                    id='permissions.E005',
+                )
+            )
+    
+    # Check PERMISSION_PRESET
+    if not hasattr(settings, 'PERMISSION_PRESET'):
+        errors.append(
+            Warning(
+                'PERMISSION_PRESET is not defined',
+                hint='Add PERMISSION_PRESET dict to your settings or use load_permission_preset',
+                id='permissions.W001',
+            )
+        )
+    else:
+        # Validate PERMISSION_PRESET structure
+        preset = settings.PERMISSION_PRESET
+        if not isinstance(preset, dict):
+            errors.append(
+                Error(
+                    'PERMISSION_PRESET must be a dictionary',
+                    id='permissions.E006',
+                )
+            )
+        else:
+            # Check required keys
+            required_keys = ['roles', 'group', 'role_grants']
+            for key in required_keys:
+                if key not in preset:
+                    errors.append(
+                        Error(
+                            f'PERMISSION_PRESET is missing required key: {key}',
+                            hint=f'Add "{key}" key to PERMISSION_PRESET',
+                            id=f'permissions.E007',
+                        )
+                    )
+    
+    # Cross-validation: ACCESS_MANAGER_SCOPE in ACCESS_SCOPES
+    if (hasattr(settings, 'ACCESS_MANAGER_SCOPE') and 
+        hasattr(settings, 'ACCESS_SCOPES') and 
+        isinstance(settings.ACCESS_SCOPES, list)):
+        
+        if settings.ACCESS_MANAGER_SCOPE not in settings.ACCESS_SCOPES:
+            errors.append(
+                Error(
+                    f'ACCESS_MANAGER_SCOPE "{settings.ACCESS_MANAGER_SCOPE}" is not in ACCESS_SCOPES',
+                    hint=f'Add "{settings.ACCESS_MANAGER_SCOPE}" to ACCESS_SCOPES list',
+                    id='permissions.E008',
+                )
+            )
+    
+    # Cross-validation: ACCESS_MANAGER_GROUP in PERMISSION_PRESET groups
+    if (hasattr(settings, 'ACCESS_MANAGER_GROUP') and 
+        settings.ACCESS_MANAGER_GROUP is not None and
+        hasattr(settings, 'PERMISSION_PRESET') and
+        isinstance(settings.PERMISSION_PRESET, dict) and
+        'group' in settings.PERMISSION_PRESET):
+        
+        group_slugs = [g.get('slug') for g in settings.PERMISSION_PRESET.get('group', [])]
+        
+        if settings.ACCESS_MANAGER_GROUP not in group_slugs:
+            errors.append(
+                Error(
+                    f'ACCESS_MANAGER_GROUP "{settings.ACCESS_MANAGER_GROUP}" is not in PERMISSION_PRESET groups',
+                    hint=f'Add a group with slug "{settings.ACCESS_MANAGER_GROUP}" to PERMISSION_PRESET["group"]',
+                    id='permissions.E009',
+                )
+            )
+    
+    # Validate ACCESS_MANAGER_CONTEXT is a dict
+    if hasattr(settings, 'ACCESS_MANAGER_CONTEXT'):
+        if not isinstance(settings.ACCESS_MANAGER_CONTEXT, dict):
+            errors.append(
+                Error(
+                    'ACCESS_MANAGER_CONTEXT must be a dictionary',
+                    hint='Set ACCESS_MANAGER_CONTEXT = {}',
+                    id='permissions.E010',
+                )
+            )
+    
+    # Check CACHE_CHECK_PERMISSION and cacheops dependency
+    if hasattr(settings, 'CACHE_CHECK_PERMISSION') and settings.CACHE_CHECK_PERMISSION:
+        if not hasattr(settings, 'INSTALLED_APPS'):
+            errors.append(
+                Error(
+                    'INSTALLED_APPS is not defined',
+                    id='permissions.E011',
+                )
+            )
+        elif 'cacheops' not in settings.INSTALLED_APPS:
+            errors.append(
+                Error(
+                    'CACHE_CHECK_PERMISSION is True but cacheops is not in INSTALLED_APPS',
+                    hint='Add "cacheops" to INSTALLED_APPS or set CACHE_CHECK_PERMISSION = False',
+                    id='permissions.E012',
+                )
+            )
+    
+    return errors
