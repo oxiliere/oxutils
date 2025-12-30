@@ -22,6 +22,7 @@ class Role(TimestampMixin):
         indexes = [
             models.Index(fields=["slug"]),
         ]
+        ordering = ["slug"]
 
 
 class Group(TimestampMixin):
@@ -34,6 +35,12 @@ class Group(TimestampMixin):
 
     def __str__(self):
         return self.slug
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["slug"]),
+        ]
+        ordering = ["slug"]
 
 
 class UserGroup(TimestampMixin):
@@ -93,6 +100,7 @@ class RoleGrant(models.Model):
             models.Index(fields=["group"]),
             models.Index(fields=["role", "group"]),
         ]
+        ordering = ["role__slug", "group__slug"]
 
     def __str__(self):
         group_str = f"[{self.group.slug}]" if self.group else ""
@@ -119,7 +127,7 @@ class Grant(TimestampMixin):
         Role,
         null=True,
         blank=True,
-        related_name="grants",
+        related_name="user_grants",
         on_delete=models.SET_NULL,
     )
     
@@ -157,6 +165,7 @@ class Grant(TimestampMixin):
             GinIndex(fields=["actions"]),
             GinIndex(fields=["context"]),
         ]
+        ordering = ["scope"]
 
     def __str__(self):
         return f"{self.user} {self.scope} {self.actions}"

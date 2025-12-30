@@ -83,6 +83,9 @@ class TenantMainMiddleware(MiddlewareMixin):
                     from django.http import HttpResponseBadRequest
                     return HttpResponseBadRequest('Missing X-Organization-ID header')
 
+        if tenant.is_deleted or not tenant.is_active:
+            return self.no_tenant_found(request, oxi_id)
+
         request.tenant = tenant
         set_current_tenant_schema_name(tenant.schema_name)
         connection.set_tenant(request.tenant)

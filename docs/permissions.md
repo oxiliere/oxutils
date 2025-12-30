@@ -64,7 +64,6 @@ Actions have dependencies that are automatically expanded:
 - `r`: Read
 - `w`: Write (implies `r`)
 - `d`: Delete (implies `w`, `r`)
-- `x`: Execute (implies `r`)
 
 Example: Granting `['w']` automatically gives `['r', 'w']`
 

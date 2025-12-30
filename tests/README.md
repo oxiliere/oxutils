@@ -1,6 +1,51 @@
 # OxUtils Tests
 
-**126 tests - 100% passing ✅**
+Structure organisée par module avec settings isolés.
+
+## Structure
+
+```
+tests/
+├── oxiliere/
+│   ├── settings.py          # Settings avec tenant models
+│   ├── test_oxiliere.py
+│   └── test_permissions.py
+├── permissions/
+│   ├── settings.py          # Settings pour permissions
+│   └── test_permissions.py
+├── common/
+│   ├── settings.py          # Settings communs
+│   └── test_*.py            # Tous les autres tests
+└── conftest.py              # Configuration pytest principale
+```
+
+## Exécution des tests
+
+Pour exécuter les tests d'un module spécifique, utiliser l'option `--ds` :
+
+```bash
+# Tests permissions
+pytest tests/permissions/ --ds=tests.permissions.settings
+
+# Tests oxiliere
+pytest tests/oxiliere/ --ds=tests.oxiliere.settings
+
+# Tests common
+pytest tests/common/ --ds=tests.common.settings
+```
+
+Ou définir la variable d'environnement :
+
+```bash
+# Tests permissions
+DJANGO_SETTINGS_MODULE=tests.permissions.settings pytest tests/permissions/
+
+# Tests oxiliere
+DJANGO_SETTINGS_MODULE=tests.oxiliere.settings pytest tests/oxiliere/
+
+# Tests common
+DJANGO_SETTINGS_MODULE=tests.common.settings pytest tests/common/
+```
 
 ## Coverage
 

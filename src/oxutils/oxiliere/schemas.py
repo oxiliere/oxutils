@@ -4,8 +4,10 @@ from ninja import Schema
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django_tenants.utils import get_tenant_model
-from oxutils.oxiliere.models import TenantUser
-from oxutils.oxiliere.utils import oxid_to_schema_name
+from oxutils.oxiliere.utils import (
+    get_tenant_user_model,
+)
+from oxutils.oxiliere.authorization import grant_manager_access_to_owners
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -22,6 +24,8 @@ class TenantSchema(Schema):
 
 class TenantOwnerSchema(Schema):
     oxi_id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: str
 
 
@@ -34,6 +38,7 @@ class CreateTenantSchema(Schema):
     def create_tenant(self):
         UserModel = get_user_model()
         TenantModel = get_tenant_model()
+        TenantUserModel = get_tenant_user_model()
 
         if TenantModel.objects.filter(oxi_id=self.tenant.oxi_id).exists():
             logger.info("tenant_exists", oxi_id=self.tenant.oxi_id)
@@ -44,24 +49,27 @@ class CreateTenantSchema(Schema):
             defaults={
                 'id': self.owner.oxi_id,
                 'email': self.owner.email,
+                'first_name': self.owner.first_name,
+                'last_name': self.owner.last_name
             }
         )
         
         tenant = TenantModel.objects.create(
             name=self.tenant.name,
-            schema_name=oxid_to_schema_name(self.tenant.oxi_id),
+            schema_name=self.tenant.oxi_id,
             oxi_id=self.tenant.oxi_id,
             subscription_plan=self.tenant.subscription_plan,
             subscription_status=self.tenant.subscription_status,
             subscription_end_date=self.tenant.subscription_end_date,
         )
         
-        TenantUser.objects.create(
+        TenantUserModel.objects.create(
             tenant=tenant,
             user=user,
             is_owner=True,
             is_admin=True,
         )
 
+        grant_manager_access_to_owners(tenant)
         logger.info("tenant_created", oxi_id=self.tenant.oxi_id)
         return tenant

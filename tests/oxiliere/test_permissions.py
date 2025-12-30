@@ -33,13 +33,15 @@ class TestTenantPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = True
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = True
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
             assert result is True
-            mock_tenant_user.objects.filter.assert_called_once()
+            mock_tenant_user_model.objects.filter.assert_called_once()
     
     def test_permission_authenticated_user_without_access(self):
         """Test permission denied for authenticated user without tenant access."""
@@ -56,8 +58,10 @@ class TestTenantPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = False
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = False
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
@@ -118,14 +122,16 @@ class TestTenantOwnerPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = True
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = True
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
             assert result is True
             # Verify is_owner=True was in filter
-            call_kwargs = mock_tenant_user.objects.filter.call_args[1]
+            call_kwargs = mock_tenant_user_model.objects.filter.call_args[1]
             assert call_kwargs['is_owner'] is True
     
     def test_permission_non_owner_user(self):
@@ -143,8 +149,10 @@ class TestTenantOwnerPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = False
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = False
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
@@ -180,14 +188,16 @@ class TestTenantAdminPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = True
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = True
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
             assert result is True
             # Verify is_admin=True was in filter
-            call_kwargs = mock_tenant_user.objects.filter.call_args[1]
+            call_kwargs = mock_tenant_user_model.objects.filter.call_args[1]
             assert call_kwargs['is_admin'] is True
     
     def test_permission_non_admin_user(self):
@@ -205,8 +215,10 @@ class TestTenantAdminPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = False
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = False
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
@@ -231,8 +243,10 @@ class TestTenantUserPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = True
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = True
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
@@ -253,8 +267,10 @@ class TestTenantUserPermission:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = False
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = False
+            mock_get_model.return_value = mock_tenant_user_model
             
             result = permission.has_permission(mock_request)
             
@@ -381,7 +397,9 @@ class TestPermissionIntegration:
         tenant_perm = TenantPermission()
         owner_perm = TenantOwnerPermission()
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            
             # User is member but not owner
             def filter_side_effect(**kwargs):
                 mock_qs = Mock()
@@ -391,7 +409,8 @@ class TestPermissionIntegration:
                     mock_qs.exists.return_value = True
                 return mock_qs
             
-            mock_tenant_user.objects.filter.side_effect = filter_side_effect
+            mock_tenant_user_model.objects.filter.side_effect = filter_side_effect
+            mock_get_model.return_value = mock_tenant_user_model
             
             # Should pass tenant permission
             assert tenant_perm.has_permission(mock_request) is True
@@ -432,8 +451,10 @@ class TestPermissionIntegration:
         mock_request.user = mock_user
         mock_request.tenant = mock_tenant
         
-        with patch('oxutils.oxiliere.permissions.TenantUser') as mock_tenant_user:
-            mock_tenant_user.objects.filter.return_value.exists.return_value = True
+        with patch('oxutils.oxiliere.permissions.get_tenant_user_model') as mock_get_model:
+            mock_tenant_user_model = Mock()
+            mock_tenant_user_model.objects.filter.return_value.exists.return_value = True
+            mock_get_model.return_value = mock_tenant_user_model
             
             # Should work with kwargs
             result = permission.has_permission(mock_request, view=Mock(), extra_param='test')

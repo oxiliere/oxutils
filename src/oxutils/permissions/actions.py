@@ -1,5 +1,14 @@
 # actions.py
 
+READ = "r"
+WRITE = "w"
+DELETE = "d"
+UPDATE = "u"
+APPROVE = "a"
+
+ACTIONS = [READ, WRITE, DELETE, UPDATE, APPROVE]
+
+
 ACTION_HIERARCHY = {
     "r": set(),            # read
     "w": {"r"},            # write ⇒ read
@@ -7,9 +16,6 @@ ACTION_HIERARCHY = {
     "d": {"r", "w"},       # delete ⇒ write ⇒ read
     "a": {"r"},            # approve ⇒ read
 }
-
-
-VALID_ACTIONS = list(ACTION_HIERARCHY.keys())
 
 
 def collapse_actions(actions: list[str]) -> set[str]:

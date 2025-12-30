@@ -149,6 +149,8 @@ class TestTenantMainMiddleware(TestCase):
         mock_tenant = Mock()
         mock_tenant.oxi_id = 'acme-corp'
         mock_tenant.schema_name = 'tenant_acmecorp'
+        mock_tenant.is_deleted = False
+        mock_tenant.is_active = True
         
         mock_connection.set_schema_to_public = Mock()
         mock_connection.tenant_model = Mock()
@@ -158,7 +160,8 @@ class TestTenantMainMiddleware(TestCase):
         
         with patch.object(self.middleware, 'get_tenant', return_value=mock_tenant):
             with patch.object(self.middleware, 'setup_url_routing'):
-                self.middleware.process_request(request)
+                with patch('oxutils.oxiliere.middleware.set_current_tenant_schema_name'):
+                    self.middleware.process_request(request)
         
         assert request.tenant == mock_tenant
         mock_connection.set_tenant.assert_called_once_with(mock_tenant)
