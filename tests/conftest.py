@@ -3,46 +3,13 @@ Pytest configuration and fixtures for OxUtils tests.
 """
 import os
 import pytest
-from django.conf import settings
-from django.test import RequestFactory
 from unittest.mock import Mock, MagicMock
-
-
-# Configure Django settings for tests
-def pytest_configure():
-    """Configure Django settings for pytest."""
-    if not settings.configured:
-        settings.configure(
-            DEBUG=True,
-            DATABASES={
-                'default': {
-                    'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': ':memory:',
-                }
-            },
-            INSTALLED_APPS=[
-                'django.contrib.contenttypes',
-                'django.contrib.auth',
-                'django_structlog',
-                'auditlog',
-                'django_celery_results',
-            ],
-            MIDDLEWARE=[
-                'auditlog.middleware.AuditlogMiddleware',
-                'django_structlog.middlewares.RequestMiddleware',
-            ],
-            SECRET_KEY='test-secret-key',
-            USE_TZ=True,
-            ROOT_URLCONF='',
-        )
-        
-        import django
-        django.setup()
 
 
 @pytest.fixture
 def request_factory():
     """Provide Django RequestFactory."""
+    from django.test import RequestFactory
     return RequestFactory()
 
 

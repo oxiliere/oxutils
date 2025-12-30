@@ -3,7 +3,7 @@ from datetime import datetime
 from ninja import Schema
 from pydantic import field_validator
 
-from .actions import VALID_ACTIONS
+from .actions import ACTIONS
 
 
 def validate_actions_list(actions: list[str]) -> list[str]:
@@ -19,11 +19,11 @@ def validate_actions_list(actions: list[str]) -> list[str]:
     Raises:
         ValueError: Si des actions invalides sont présentes
     """
-    invalid_actions = [a for a in actions if a not in VALID_ACTIONS]
+    invalid_actions = [a for a in actions if a not in ACTIONS]
     if invalid_actions:
         raise ValueError(
             f"Actions invalides: {invalid_actions}. "
-            f"Actions valides: {VALID_ACTIONS}"
+            f"Actions valides: {ACTIONS}"
         )
     return actions
 

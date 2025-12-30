@@ -6,4 +6,9 @@ class OxiliereConfig(AppConfig):
     name = 'oxutils.oxiliere'
 
     def ready(self):
-        import oxutils.oxiliere.caches
+        import oxutils.oxiliere.checks
+        
+        try:
+            import oxutils.oxiliere.caches
+        except LookupError:
+            pass

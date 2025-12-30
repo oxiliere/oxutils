@@ -1,7 +1,8 @@
 from ninja_extra.permissions import BasePermission
-from oxutils.oxiliere.models import TenantUser
+from oxutils.oxiliere.utils import get_tenant_user_model
 from oxutils.constants import OXILIERE_SERVICE_TOKEN
 from oxutils.jwt.tokens import OxilierServiceToken
+
 
 
 class TenantPermission(BasePermission):
@@ -17,7 +18,7 @@ class TenantPermission(BasePermission):
             return False
         
         # Vérifier que l'utilisateur a accès à ce tenant
-        return TenantUser.objects.filter(
+        return get_tenant_user_model().objects.filter(
             tenant__pk=request.tenant.pk,
             user__pk=request.user.pk
         ).exists()
@@ -34,7 +35,7 @@ class TenantOwnerPermission(BasePermission):
         if not hasattr(request, 'tenant'):
             return False
         
-        return TenantUser.objects.filter(
+        return get_tenant_user_model().objects.filter(
             tenant__pk=request.tenant.pk,
             user__pk=request.user.pk,
             is_owner=True
@@ -52,7 +53,7 @@ class TenantAdminPermission(BasePermission):
         if not hasattr(request, 'tenant'):
             return False
         
-        return TenantUser.objects.filter(
+        return get_tenant_user_model().objects.filter(
             tenant__pk=request.tenant.pk,
             user__pk=request.user.pk,
             is_admin=True
@@ -71,7 +72,7 @@ class TenantUserPermission(BasePermission):
         if not hasattr(request, 'tenant'):
             return False
         
-        return TenantUser.objects.filter(
+        return get_tenant_user_model().objects.filter(
             tenant__pk=request.tenant.pk,
             user__pk=request.user.pk
         ).exists()

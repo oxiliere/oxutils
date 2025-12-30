@@ -1,4 +1,5 @@
 from typing import Any
+import uuid
 from django.apps import apps
 from django.conf import settings
 from .constants import OXI_SYSTEM_TENANT
@@ -66,6 +67,13 @@ def oxid_to_schema_name(oxid: str) -> str:
         raise ValueError(f"Schema name too long: {len(schema_name)} characters (max 63)")
     
     return schema_name
+
+
+def generate_schema_name(oxi_id: str, suffix: str = None) -> str:
+    cleaned = oxid_to_schema_name(oxi_id)
+    if suffix:
+        return f"{cleaned}_{suffix}"
+    return f"{cleaned}_{uuid.uuid4().hex[:8]}"
 
 
 def update_tenant_user(oxi_org_id: str, oxi_user_id: str, data: dict):

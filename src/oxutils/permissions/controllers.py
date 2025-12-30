@@ -1,4 +1,5 @@
 from typing import List, Optional
+from django.conf import settings
 from django.http import HttpRequest
 from ninja_extra import (
     api_controller,
@@ -31,6 +32,10 @@ class PermissionController(ControllerBase):
     Contrôleur pour la gestion des permissions, rôles et groupes.
     """
     service = PermissionService()
+
+    @http_get('/scopes', response=List[str])
+    def list_scopes(self):
+        return getattr(settings, 'ACCESS_SCOPES', [])
 
     @http_get("/roles", response=PaginatedResponseSchema[schemas.RoleSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)

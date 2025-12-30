@@ -36,6 +36,14 @@ class TokenTenant:
     def pk(self):
         return self.id
 
+    @property
+    def is_active(self):
+        return self.status == 'active'
+
+    @property
+    def is_deleted(self):
+        return self.status == 'deleted'
+
     @classmethod
     def for_token(cls, token):
         try:
@@ -63,10 +71,6 @@ class TokenUser(DefaultTonkenUser):
     def oxi_id(self):
         # for compatibility with the User model
         return self.id
-
-    @property
-    def role(self):
-        return self.token.get('role', None)
 
     @cached_property
     def token_created_at(self):

@@ -3,40 +3,23 @@ Django settings for OxUtils tests.
 """
 import os
 
-# Build paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Set required environment variables for S3 storage (used by audit models)
-os.environ.setdefault('OXI_SERVICE_NAME', 'test-service')
-os.environ.setdefault('OXI_USE_LOG_S3', 'True')
-os.environ.setdefault('OXI_USE_PRIVATE_S3', 'True')
-os.environ.setdefault('OXI_USE_PRIVATE_S3_AS_LOG', 'True')
-os.environ.setdefault('OXI_PRIVATE_S3_STORAGE_BUCKET_NAME', 'test-bucket')
-os.environ.setdefault('OXI_PRIVATE_S3_ACCESS_KEY_ID', 'test-key')
-os.environ.setdefault('OXI_PRIVATE_S3_SECRET_ACCESS_KEY', 'test-secret')
-os.environ.setdefault('OXI_PRIVATE_S3_CUSTOM_DOMAIN', 'test.example.com')
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'test-secret-key-not-for-production'
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
 ALLOWED_HOSTS = ['*']
 
-# Application definition
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
     'django_structlog',
     'auditlog',
     'django_celery_results',
+    'cacheops',
     'oxutils.audit',
     'oxutils.currency',
     'oxutils.users',
-    'cacheops',
     'oxutils.permissions',
-    'oxutils.oxiliere',
 ]
 
 MIDDLEWARE = [
@@ -46,7 +29,19 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
 ]
 
-ROOT_URLCONF = ''
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'oxutils_test',
+        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'postgres'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'TEST': {
+            'NAME': 'oxutils_test_db',
+        }
+    }
+}
 
 TEMPLATES = [
     {
@@ -63,49 +58,33 @@ TEMPLATES = [
     },
 ]
 
-# Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'oxutils_test',
-        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'postgres'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        'TEST': {
-            'NAME': 'oxutils_test_db',
-        }
-    }
-}
-
-# Password validation
 AUTH_PASSWORD_VALIDATORS = []
 
-# Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
-
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# OxUtils settings for tests
-OXI_SERVICE_NAME = 'test-service'
-OXI_LOG_ACCESS = False
-OXI_RETENTION_DELAY = 7
-
-# Django-tenants settings
-TENANT_MODEL = 'oxiliere.Tenant'
-TENANT_USER_MODEL = 'oxiliere.TenantUser'
-
+ROOT_URLCONF = ''
 
 CACHEOPS = {
     "*.*": {'ops': {}, 'timeout': 0}
 }
+
+os.environ.setdefault('OXI_SERVICE_NAME', 'test-service')
+os.environ.setdefault('OXI_USE_LOG_S3', 'True')
+os.environ.setdefault('OXI_USE_PRIVATE_S3', 'True')
+os.environ.setdefault('OXI_USE_PRIVATE_S3_AS_LOG', 'True')
+os.environ.setdefault('OXI_PRIVATE_S3_STORAGE_BUCKET_NAME', 'test-bucket')
+os.environ.setdefault('OXI_PRIVATE_S3_ACCESS_KEY_ID', 'test-key')
+os.environ.setdefault('OXI_PRIVATE_S3_SECRET_ACCESS_KEY', 'test-secret')
+os.environ.setdefault('OXI_PRIVATE_S3_CUSTOM_DOMAIN', 'test.example.com')
+
+OXI_SERVICE_NAME = 'test-service'
+OXI_LOG_ACCESS = False
+OXI_RETENTION_DELAY = 7
 
 # Permissions settings
 ACCESS_MANAGER_SCOPE = 'access'
@@ -113,3 +92,4 @@ ACCESS_MANAGER_GROUP = 'manager'
 ACCESS_MANAGER_CONTEXT = {}
 ACCESS_SCOPES = ['access', 'articles', 'users', 'comments']
 CACHE_CHECK_PERMISSION = False
+FIELD_MASKING_KEY = 'LCPN2bFN2NHA6XCZscpv8JctYJQ2FTfuVKIunFUchnE='
