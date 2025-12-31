@@ -23,14 +23,10 @@ def get_tenant_user_model() -> Any:
     return get_model('TENANT_USER_MODEL')
 
 def is_system_tenant(tenant: Any) -> bool:
-    return tenant.schema_name == get_system_tenant_schema_name()
+    return tenant.oxi_id == get_system_tenant_oxi_id()
 
-def get_system_tenant_schema_name():
-    system_schema_name = oxid_to_schema_name(
-        getattr(settings, 'OXI_SYSTEM_TENANT', OXI_SYSTEM_TENANT)
-    )
-
-    return system_schema_name
+def get_system_tenant_oxi_id():
+    return getattr(settings, 'OXI_SYSTEM_TENANT', OXI_SYSTEM_TENANT)
 
 def oxid_to_schema_name(oxid: str) -> str:
     """

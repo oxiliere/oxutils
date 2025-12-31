@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, Optional, Type, Tuple
+from typing import Dict, Any, Optional, Type, Tuple, List
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpRequest
 from django.contrib.auth.models import AbstractUser
