@@ -3,7 +3,7 @@ from cacheops import cached_as, cached
 from oxutils.oxiliere.utils import (
     get_tenant_model,
     get_tenant_user_model,
-    get_system_tenant_schema_name
+    get_system_tenant_oxi_id
 )
 
 
@@ -33,5 +33,4 @@ def get_tenant_user(oxi_org_id: str, oxi_user_id: str):
 
 @cached(timeout=60*15)
 def get_system_tenant():
-    schema_name = get_system_tenant_schema_name()
-    return get_tenant_model().objects.get(schema_name=schema_name)
+    return get_tenant_model().objects.get(oxi_id=get_system_tenant_oxi_id())
