@@ -309,7 +309,7 @@ except ImproperlyConfigured:
 2. **Load user only when needed**: Use `@load_user` decorator sparingly
 3. **Rotate keys regularly**: Use `clear_jwk_cache()` after key rotation
 4. **Set appropriate lifetimes**: Short for access tokens, very short for service tokens
-5. **Secure key storage**: Never commit keys to version control
+5. **Secure keys**: Never commit keys to version control
 6. **Use environment variables**: Configure all JWT settings via `OXI_` env vars
 
 ## Related Docs

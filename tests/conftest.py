@@ -36,18 +36,6 @@ def sample_jwt_payload():
 
 
 @pytest.fixture
-def mock_s3_client():
-    """Provide a mock boto3 S3 client."""
-    client = MagicMock()
-    client.put_object.return_value = {'ETag': '"test-etag"'}
-    client.get_object.return_value = {
-        'Body': MagicMock(),
-        'ContentLength': 1024,
-    }
-    return client
-
-
-@pytest.fixture
 def temp_jwt_key(tmp_path):
     """Create temporary JWT key files for testing."""
     from cryptography.hazmat.primitives.asymmetric import rsa

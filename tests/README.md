@@ -56,7 +56,6 @@ DJANGO_SETTINGS_MODULE=tests.common.settings pytest tests/common/
 | Functions | 22 |
 | JWT | 17 |
 | Mixins | 12 |
-| S3 | 18 |
 | Settings | 17 |
 
 ## Running Tests

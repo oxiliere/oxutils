@@ -85,4 +85,3 @@ if request_is_bound(request):
 ## Related Docs
 
 - [JWT](./jwt.md) - Authentication errors
-- [S3](./s3.md) - Storage errors

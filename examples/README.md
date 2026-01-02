@@ -22,15 +22,6 @@ JWT authentication with Django Ninja.
 - Public endpoints
 - Accessing user data from token
 
-### 3. [s3_storage.py](s3_storage.py)
-Using S3 storage backends.
-
-**Covers:**
-- Public media storage
-- Private media storage with presigned URLs
-- Access control
-- Direct storage operations
-
 ## Environment Setup
 
 Create a `.env` file:
@@ -41,17 +32,6 @@ OXI_SERVICE_NAME=my-service
 
 # JWT
 OXI_JWT_JWKS_URL=https://auth.example.com/.well-known/jwks.json
-
-# S3
-OXI_USE_STATIC_S3=True
-OXI_STATIC_STORAGE_BUCKET_NAME=my-bucket
-OXI_STATIC_S3_CUSTOM_DOMAIN=cdn.example.com
-
-OXI_USE_DEFAULT_S3=True
-OXI_USE_STATIC_S3_AS_DEFAULT=True
-
-OXI_USE_PRIVATE_S3=True
-OXI_PRIVATE_S3_STORAGE_BUCKET_NAME=private-bucket
 
 # Audit
 OXI_LOG_ACCESS=True

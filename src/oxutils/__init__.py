@@ -2,7 +2,6 @@
 
 This package provides:
 - JWT authentication with JWKS support
-- S3 storage backends (static, media, private, logs)
 - Structured logging with correlation IDs
 - Audit system with S3 export
 - Celery integration
@@ -11,7 +10,7 @@ This package provides:
 - Permission management
 """
 
-__version__ = "0.1.10"
+__version__ = "0.1.12"
 
 from oxutils.settings import oxi_settings
 from oxutils.conf import UTILS_APPS, AUDIT_MIDDLEWARE

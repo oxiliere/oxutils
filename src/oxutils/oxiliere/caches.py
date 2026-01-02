@@ -1,4 +1,3 @@
-from django.conf import settings
 from cacheops import cached_as, cached
 from oxutils.oxiliere.utils import (
     get_tenant_model,

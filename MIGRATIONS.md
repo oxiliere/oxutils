@@ -14,7 +14,6 @@ uv run python make_migrations.py
 
 This script:
 - Automatically configures the minimal Django environment
-- Sets the required environment variables for S3
 - Generates migrations for the `oxutils.audit` module
 
 ### Method 2: From an Existing Django Project
@@ -46,13 +45,6 @@ INSTALLED_APPS = [
 
 ```bash
 export OXI_SERVICE_NAME=your-service
-export OXI_USE_LOG_S3=True
-export OXI_USE_PRIVATE_S3=True
-export OXI_USE_PRIVATE_S3_AS_LOG=True
-export OXI_PRIVATE_S3_STORAGE_BUCKET_NAME=your-bucket
-export OXI_PRIVATE_S3_ACCESS_KEY_ID=your-key
-export OXI_PRIVATE_S3_SECRET_ACCESS_KEY=your-secret
-export OXI_PRIVATE_S3_CUSTOM_DOMAIN=your-domain.com
 ```
 
 3. Create the migrations:
@@ -101,24 +93,11 @@ python manage.py migrate audit
 
 1. **Reusable Application**: oxutils is designed as a reusable Django application. Migrations are included in the package.
 
-2. **S3 Configuration**: The models use S3 storage for files. Make sure your S3 configuration is correct before applying migrations.
+2. **Dependencies**: The migrations have no external dependencies (no `dependencies` in the initial migration).
 
-3. **Dependencies**: The migrations have no external dependencies (no `dependencies` in the initial migration).
-
-4. **Tests**: Migrations are automatically applied when running tests via pytest-django.
+3. **Tests**: Migrations are automatically applied when running tests via pytest-django.
 
 ## Troubleshooting
-
-### Error: "Missing required log S3 configuration"
-
-Make sure all S3 environment variables are defined:
-- `OXI_USE_LOG_S3=True`
-- `OXI_USE_PRIVATE_S3=True`
-- `OXI_USE_PRIVATE_S3_AS_LOG=True`
-- `OXI_PRIVATE_S3_STORAGE_BUCKET_NAME`
-- `OXI_PRIVATE_S3_ACCESS_KEY_ID`
-- `OXI_PRIVATE_S3_SECRET_ACCESS_KEY`
-- `OXI_PRIVATE_S3_CUSTOM_DOMAIN`
 
 ### Error: "No module named 'oxutils'"
 
