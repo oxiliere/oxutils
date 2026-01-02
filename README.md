@@ -12,7 +12,6 @@
 ## Features
 
 - 🔐 **JWT Authentication** - RS256 with JWKS caching
-- 📦 **S3 Storage** - Static, media, private, and log backends
 - 📝 **Structured Logging** - JSON logs with automatic request tracking
 - 🔍 **Audit System** - Change tracking with S3 export
 - ⚙️ **Celery Integration** - Pre-configured task processing
@@ -59,8 +58,6 @@ MIDDLEWARE = [
 ```bash
 OXI_SERVICE_NAME=my-service
 OXI_JWT_JWKS_URL=https://auth.example.com/.well-known/jwks.json
-OXI_USE_STATIC_S3=True
-OXI_STATIC_STORAGE_BUCKET_NAME=my-bucket
 ```
 
 ### 3. Usage Examples
@@ -75,10 +72,6 @@ import structlog
 logger = structlog.get_logger(__name__)
 logger.info("user_action", user_id=user_id)
 
-# S3 Storage
-from oxutils.s3.storages import PrivateMediaStorage
-class Document(models.Model):
-    file = models.FileField(storage=PrivateMediaStorage())
 
 # Model Mixins
 from oxutils.models.base import BaseModelMixin
@@ -106,7 +99,6 @@ TEMPLATES = [{
 ### Core Modules
 - **[Settings](docs/settings.md)** - Configuration reference
 - **[JWT](docs/jwt.md)** - Authentication
-- **[S3](docs/s3.md)** - Storage backends
 - **[Audit](docs/audit.md)** - Change tracking
 - **[Logging](docs/logger.md)** - Structured logs
 - **[Mixins](docs/mixins.md)** - Model/service mixins

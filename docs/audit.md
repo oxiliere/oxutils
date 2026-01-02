@@ -1,14 +1,12 @@
 # Audit System
 
-**Automatic change tracking with S3 export**
+**Automatic change tracking**
 
 ## Features
 
 - Automatic model change logging
 - Data masking for sensitive fields
-- Log export to S3 (ZIP format)
 - Configurable retention policies
-- Export state tracking with history
 
 ## Setup
 
@@ -68,33 +66,6 @@ auditlog.register(
 )
 ```
 
-### Export Logs
-
-```python
-from oxutils.audit.export import export_logs_from_date
-from datetime import datetime, timedelta
-
-# Export last 7 days
-from_date = datetime.now() - timedelta(days=7)
-export = export_logs_from_date(from_date=from_date)
-
-print(f"Exported to: {export.data.url}")
-print(f"Size: {export.size} bytes")
-```
-
-### Log Export Model
-
-```python
-from oxutils.audit.models import LogExportState
-
-# Check export status
-export = LogExportState.objects.get(id=export_id)
-
-if export.status == ExportStatus.SUCCESS.value:
-    # Download URL (presigned, valid 1 hour)
-    url = export.data.url
-```
-
 ## Automatic Cleanup
 
 Configure retention in settings:
@@ -133,6 +104,5 @@ This enables full request tracing across both application logs and audit logs.
 
 ## Related Docs
 
-- [S3](./s3.md) - Log storage
 - [Settings](./settings.md) - Audit configuration
 - [Enums](./enums.md) - Export status

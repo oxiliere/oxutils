@@ -39,15 +39,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# 3. Configure S3 (if enabled)
-if oxi_settings.use_static_s3:
-    STATICFILES_STORAGE = 'oxutils.s3.storages.StaticStorage'
-    STATIC_URL = f'https://{oxi_settings.static_s3_custom_domain}/{oxi_settings.static_location}/'
-
-if oxi_settings.use_default_s3:
-    DEFAULT_FILE_STORAGE = 'oxutils.s3.storages.PublicMediaStorage'
-    MEDIA_URL = f'https://{oxi_settings.default_s3_custom_domain}/{oxi_settings.default_s3_location}/'
-
 # 4. Celery configuration
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'django-db'

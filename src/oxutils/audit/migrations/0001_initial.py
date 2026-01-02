@@ -2,7 +2,7 @@
 
 import django.db.models.deletion
 import oxutils.enums.audit
-import oxutils.s3.storages
+from oxutils.logger import get_log_storage
 from django.db import migrations, models
 
 
@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True, help_text='Date and time when this record was last updated')),
                 ('last_export_date', models.DateTimeField(null=True)),
                 ('status', models.CharField(choices=[(oxutils.enums.audit.ExportStatus['FAILED'], 'Failed'), (oxutils.enums.audit.ExportStatus['PENDING'], 'Pending'), (oxutils.enums.audit.ExportStatus['SUCCESS'], 'Success')], default=oxutils.enums.audit.ExportStatus['PENDING'])),
-                ('data', models.FileField(storage=oxutils.s3.storages.LogStorage(), upload_to='')),
+                ('data', models.FileField(storage=get_log_storage, upload_to='')),
                 ('size', models.BigIntegerField()),
             ],
             options={

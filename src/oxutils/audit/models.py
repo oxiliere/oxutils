@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.db import models, transaction
 from oxutils.enums.audit import ExportStatus
 from oxutils.models.base import TimestampMixin
-from oxutils.s3.storages import LogStorage
+from oxutils.logger import get_log_storage
 
 
 
@@ -38,7 +38,7 @@ class LogExportState(TimestampMixin):
             (ExportStatus.SUCCESS, _('Success'))
         )
     )
-    data = models.FileField(storage=LogStorage())
+    data = models.FileField(storage=get_log_storage)
     size = models.BigIntegerField()
 
     @classmethod

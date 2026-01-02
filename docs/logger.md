@@ -259,6 +259,69 @@ logger.info("tenant_operation", action="create_invoice")
 # Output includes: tenant="client_schema"
 ```
 
+## Storage Integration
+
+### Log Storage Configuration
+
+OxUtils integrates with Django 5's `STORAGES` configuration for flexible log file storage:
+
+```python
+from oxutils.logger import get_log_storage
+
+# Get the configured log storage backend
+storage = get_log_storage()
+
+# Use it to save log files
+storage.save('logs/export.json', file_content)
+```
+
+### Django STORAGES Setup
+
+Configure a dedicated storage backend for logs in your Django settings:
+
+```python
+# settings.py
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+    "logs": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {
+            "location": "/var/log/myapp",
+            "base_url": "/logs/",
+        },
+    },
+}
+```
+
+### Storage Backend Fallback
+
+The `get_log_storage()` function automatically handles storage backend resolution:
+
+1. **Primary**: Uses the `logs` storage backend if configured in `STORAGES`
+2. **Fallback**: Falls back to `default` storage if `logs` backend is not configured
+
+This allows flexible deployment configurations:
+- **Development**: Use default filesystem storage
+- **Production**: Use dedicated log storage (filesystem, S3, etc.)
+
+```python
+# Example: Using log storage for audit exports
+from oxutils.logger import get_log_storage
+import json
+
+storage = get_log_storage()
+
+# Save audit log export
+export_data = {"logs": [...]}
+file_path = f"exports/audit_{datetime.now().isoformat()}.json"
+storage.save(file_path, json.dumps(export_data))
+```
+
 ## Processors Pipeline
 
 The structlog configuration includes:
