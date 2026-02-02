@@ -1,6 +1,6 @@
 [project]
 name = "oxutils"
-version = "0.1.13"
+version = "0.1.14"
 description = "Production-ready utilities for Django applications in the Oxiliere ecosystem"
 readme = "README.md"
 license = "Apache-2.0"

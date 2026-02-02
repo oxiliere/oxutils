@@ -17,6 +17,9 @@ from oxutils.permissions.utils import (
     check,
     str_check,
     group_sync,
+    any_action_check,
+    any_permission_check,
+    parse_permission,
 )
 from oxutils.permissions.actions import (
     collapse_actions,
@@ -28,7 +31,12 @@ from oxutils.permissions.exceptions import (
     GrantNotFoundException,
     GroupAlreadyAssignedException,
 )
-from oxutils.permissions.perms import ScopePermission, access_manager
+from oxutils.permissions.perms import (
+    ScopePermission,
+    ScopeAnyPermission,
+    ScopeAnyActionPermission,
+    access_manager
+)
 
 
 User = get_user_model()
@@ -591,3 +599,386 @@ class TestGroupSpecificRoleGrants:
         # Note: group-specific grants may not be fully implemented yet
         grants = Grant.objects.filter(user=test_user, scope='articles')
         assert grants.exists()
+
+
+class TestParsePermission:
+    """Test parse_permission utility function."""
+
+    def test_parse_simple_permission(self):
+        """Test parsing simple permission string."""
+        scope, actions, group, context = parse_permission('articles:rw')
+        
+        assert scope == 'articles'
+        assert actions == ['r', 'w']
+        assert group is None
+        assert context == {}
+
+    def test_parse_permission_with_group(self):
+        """Test parsing permission with group."""
+        scope, actions, group, context = parse_permission('articles:w:staff')
+        
+        assert scope == 'articles'
+        assert actions == ['w']
+        assert group == 'staff'
+        assert context == {}
+
+    def test_parse_permission_with_context(self):
+        """Test parsing permission with query string context."""
+        scope, actions, group, context = parse_permission('articles:rw?tenant_id=123&status=published')
+        
+        assert scope == 'articles'
+        assert actions == ['r', 'w']
+        assert group is None
+        assert context == {'tenant_id': 123, 'status': 'published'}
+
+    def test_parse_permission_with_group_and_context(self):
+        """Test parsing permission with both group and context."""
+        scope, actions, group, context = parse_permission('articles:w:staff?tenant_id=123')
+        
+        assert scope == 'articles'
+        assert actions == ['w']
+        assert group == 'staff'
+        assert context == {'tenant_id': 123}
+
+    def test_parse_permission_invalid_format(self):
+        """Test parsing invalid permission format raises error."""
+        with pytest.raises(ValueError, match="Format de permission invalide"):
+            parse_permission('invalid')
+
+
+class TestAnyActionCheck:
+    """Test any_action_check function."""
+
+    def test_any_action_check_basic(self, test_user, editor_role, admin_user):
+        """Test any_action_check with basic usage."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r'],  # Only read permission
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        # User has 'r', checking for ['r', 'w', 'd'] should return True (has at least 'r')
+        assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
+        
+        # User doesn't have 'w' or 'd', but has 'r', so should still be True
+        assert any_action_check(test_user, 'articles', ['w', 'd']) is False
+
+    def test_any_action_check_with_multiple_actions(self, test_user, editor_role, admin_user):
+        """Test any_action_check when user has multiple actions."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        # User has ['r', 'w'], checking for any of ['r', 'w', 'd'] should be True
+        assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
+        
+        # User has 'w', checking for ['w', 'd'] should be True
+        assert any_action_check(test_user, 'articles', ['w', 'd']) is True
+        
+        # User doesn't have 'd' or 'x', should be False
+        assert any_action_check(test_user, 'articles', ['d', 'x']) is False
+
+    def test_any_action_check_with_group(self, test_user, editor_role, admin_user):
+        """Test any_action_check with group filter."""
+        staff_group = Group.objects.create(slug='staff', name='Staff')
+        staff_group.roles.add(editor_role)
+        
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        # Check with group filter
+        assert any_action_check(test_user, 'articles', ['r', 'w'], group='staff') is True
+        assert any_action_check(test_user, 'articles', ['d'], group='staff') is False
+
+    def test_any_action_check_with_context(self, test_user):
+        """Test any_action_check with context."""
+        Grant.objects.create(
+            user=test_user,
+            scope='articles',
+            actions=['r', 'w'],
+            context={'tenant_id': 123}
+        )
+        
+        # With matching context
+        assert any_action_check(test_user, 'articles', ['r', 'w'], tenant_id=123) is True
+        
+        # With non-matching context
+        assert any_action_check(test_user, 'articles', ['r', 'w'], tenant_id=456) is False
+
+
+class TestAnyPermissionCheck:
+    """Test any_permission_check function."""
+
+    def test_any_permission_check_basic(self, test_user, editor_role, admin_user):
+        """Test any_permission_check with basic usage."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        # User has 'articles:r', checking for ['articles:r', 'invoices:w'] should be True
+        assert any_permission_check(test_user, 'articles:r', 'invoices:w') is True
+        
+        # User doesn't have any of these
+        assert any_permission_check(test_user, 'invoices:w', 'users:d') is False
+
+    def test_any_permission_check_multiple_scopes(self, test_user, editor_role, admin_user):
+        """Test any_permission_check with multiple scopes."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='invoices',
+            actions=['r'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        # User has both permissions
+        assert any_permission_check(test_user, 'articles:r', 'invoices:r') is True
+        
+        # User has at least one (articles:w)
+        assert any_permission_check(test_user, 'articles:w', 'users:d') is True
+        
+        # User has none of these
+        assert any_permission_check(test_user, 'users:r', 'reports:w') is False
+
+    def test_any_permission_check_with_groups(self, test_user, editor_role, admin_user):
+        """Test any_permission_check with group filters."""
+        staff_group = Group.objects.create(slug='staff', name='Staff')
+        staff_group.roles.add(editor_role)
+        
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        # Check with group in permission string
+        assert any_permission_check(
+            test_user,
+            'articles:r:staff',
+            'invoices:w:admin'
+        ) is True
+
+    def test_any_permission_check_with_context(self, test_user):
+        """Test any_permission_check with context in permission strings."""
+        Grant.objects.create(
+            user=test_user,
+            scope='articles',
+            actions=['r'],
+            context={'tenant_id': 123}
+        )
+        Grant.objects.create(
+            user=test_user,
+            scope='invoices',
+            actions=['w'],
+            context={'tenant_id': 456}
+        )
+        
+        # User has articles:r with tenant_id=123
+        assert any_permission_check(
+            test_user,
+            'articles:r?tenant_id=123',
+            'users:d'
+        ) is True
+        
+        # User has invoices:w with tenant_id=456
+        assert any_permission_check(
+            test_user,
+            'articles:r?tenant_id=999',
+            'invoices:w?tenant_id=456'
+        ) is True
+
+    def test_any_permission_check_empty_permissions(self, test_user):
+        """Test any_permission_check with no permissions returns False."""
+        assert any_permission_check(test_user) is False
+
+
+class TestScopeAnyActionPermission:
+    """Test ScopeAnyActionPermission class."""
+
+    def test_scope_any_action_permission_basic(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyActionPermission basic functionality."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        # Create mock request
+        request = Mock()
+        request.user = test_user
+        
+        # User has 'r', permission checks for 'rwd' (any of them)
+        permission = ScopeAnyActionPermission('articles:rwd')
+        assert permission.has_permission(request, None) is True
+        
+        # User doesn't have 'w' or 'd'
+        permission = ScopeAnyActionPermission('articles:wd')
+        assert permission.has_permission(request, None) is False
+
+    def test_scope_any_action_permission_with_group(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyActionPermission with group."""
+        staff_group = Group.objects.create(slug='staff', name='Staff')
+        staff_group.roles.add(editor_role)
+        
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        request = Mock()
+        request.user = test_user
+        
+        permission = ScopeAnyActionPermission('articles:rwd:staff')
+        assert permission.has_permission(request, None) is True
+
+    def test_scope_any_action_permission_with_context(self, test_user):
+        """Test ScopeAnyActionPermission with context."""
+        Grant.objects.create(
+            user=test_user,
+            scope='articles',
+            actions=['r', 'w'],
+            context={'tenant_id': 123}
+        )
+        
+        request = Mock()
+        request.user = test_user
+        
+        permission = ScopeAnyActionPermission('articles:rwd?tenant_id=123')
+        assert permission.has_permission(request, None) is True
+        
+        permission = ScopeAnyActionPermission('articles:rwd?tenant_id=456')
+        assert permission.has_permission(request, None) is False
+
+    def test_scope_any_action_permission_validation(self):
+        """Test ScopeAnyActionPermission validation."""
+        with pytest.raises(ValueError, match="Permission string must be provided"):
+            ScopeAnyActionPermission('')
+
+
+class TestScopeAnyPermission:
+    """Test ScopeAnyPermission class."""
+
+    def test_scope_any_permission_basic(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyPermission basic functionality."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        request = Mock()
+        request.user = test_user
+        
+        # User has 'articles:r', checking for ['articles:r', 'invoices:w']
+        permission = ScopeAnyPermission('articles:r', 'invoices:w')
+        assert permission.has_permission(request, None) is True
+        
+        # User doesn't have any of these
+        permission = ScopeAnyPermission('invoices:w', 'users:d')
+        assert permission.has_permission(request, None) is False
+
+    def test_scope_any_permission_multiple_scopes(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyPermission with multiple scopes."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='invoices',
+            actions=['r'],
+            group=None
+        )
+        
+        assign_role(test_user, 'editor', by=admin_user)
+        
+        request = Mock()
+        request.user = test_user
+        
+        # User has at least one of these
+        permission = ScopeAnyPermission('articles:w', 'users:d', 'reports:r')
+        assert permission.has_permission(request, None) is True
+
+    def test_scope_any_permission_with_groups(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyPermission with group filters."""
+        staff_group = Group.objects.create(slug='staff', name='Staff')
+        staff_group.roles.add(editor_role)
+        
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['r', 'w'],
+            group=None
+        )
+        
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        request = Mock()
+        request.user = test_user
+        
+        permission = ScopeAnyPermission('articles:r:staff', 'invoices:w:admin')
+        assert permission.has_permission(request, None) is True
+
+    def test_scope_any_permission_with_context(self, test_user):
+        """Test ScopeAnyPermission with context."""
+        Grant.objects.create(
+            user=test_user,
+            scope='articles',
+            actions=['r'],
+            context={'tenant_id': 123}
+        )
+        
+        request = Mock()
+        request.user = test_user
+        
+        permission = ScopeAnyPermission(
+            'articles:r?tenant_id=123',
+            'invoices:w?tenant_id=456'
+        )
+        assert permission.has_permission(request, None) is True
+
+    def test_scope_any_permission_validation(self):
+        """Test ScopeAnyPermission validation."""
+        with pytest.raises(ValueError, match="At least one permission string must be provided"):
+            ScopeAnyPermission()
