@@ -59,6 +59,7 @@ class User(AbstractUser, SafeDeleteModel, BaseModelMixin):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=True, null=True)
     last_name = models.CharField(max_length=255, blank=True, null=True)
+    photo = models.ImageField(upload_to='users/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     subscription_plan = models.CharField(max_length=255, null=True, blank=True)
     subscription_status = models.CharField(max_length=255, null=True, blank=True)

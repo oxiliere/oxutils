@@ -214,7 +214,7 @@ DELETE /api/access/role-grants/{id}   # Delete role grant
 ```python
 from oxutils.permissions.utils import check, str_check
 
-# Simple check
+# Simple check (ALL actions required)
 if check(user, 'articles', ['r']):
     # User can read articles
     pass
@@ -250,9 +250,56 @@ if str_check(user, 'articles:w:staff?tenant_id=123'):
     pass
 ```
 
+### "Any" Permission Checks (OR Logic)
+
+For checking if a user has **at least one** of multiple permissions:
+
+```python
+from oxutils.permissions.utils import any_action_check, any_permission_check
+
+# Check if user has AT LEAST ONE action on a scope
+if any_action_check(user, 'articles', ['r', 'w', 'd']):
+    # User has read OR write OR delete permission
+    pass
+
+# With group filter
+if any_action_check(user, 'articles', ['w', 'd'], group='staff'):
+    # User has write OR delete via staff group
+    pass
+
+# With context
+if any_action_check(user, 'articles', ['r', 'w'], tenant_id=123):
+    # User has read OR write for tenant 123
+    pass
+
+# Check if user has AT LEAST ONE of multiple permissions
+if any_permission_check(
+    user,
+    'articles:r',              # Can read articles
+    'articles:w:staff',        # OR can write as staff
+    'invoices:d:admin'         # OR can delete invoices as admin
+):
+    # User has at least one of these permissions
+    pass
+
+# Complex example with different scopes and contexts
+if any_permission_check(
+    user,
+    'reports:r?department=finance',
+    'reports:w:manager',
+    'analytics:r'
+):
+    # User can access if they have ANY of these permissions
+    pass
+```
+
+**Performance Note:** Both functions use a single optimized database query with OR conditions, regardless of how many permissions are checked.
+
 ### Controller-Level Permissions
 
-Use `ScopePermission` to protect entire controllers or specific routes:
+#### ScopePermission (AND Logic)
+
+Use `ScopePermission` to protect entire controllers or specific routes. User must have **ALL** specified actions:
 
 ```python
 from ninja_extra import api_controller, http_get
@@ -289,6 +336,102 @@ class ArticleController:
         # Write access required
         pass
 ```
+
+#### ScopeAnyActionPermission (OR Logic - Single Scope)
+
+Use when user needs **at least one** of multiple actions on a single scope:
+
+```python
+from oxutils.permissions.perms import ScopeAnyActionPermission
+
+# User needs read OR write OR delete on articles
+@api_controller('/articles', permissions=[
+    ScopeAnyActionPermission('articles:rwd')
+])
+class ArticleController:
+    # Access granted if user has ANY of: read, write, or delete
+    pass
+
+# With group filter
+@api_controller('/reports', permissions=[
+    ScopeAnyActionPermission('reports:rw:staff')
+])
+class ReportController:
+    # User needs read OR write via staff group
+    pass
+
+# With context
+@api_controller('/invoices', permissions=[
+    ScopeAnyActionPermission('invoices:rwd?tenant_id=123')
+])
+class InvoiceController:
+    # User needs read OR write OR delete for tenant 123
+    pass
+
+# With additional context via ctx parameter
+@api_controller('/data', permissions=[
+    ScopeAnyActionPermission('data:rw', ctx={'department': 'finance'})
+])
+class DataController:
+    pass
+```
+
+#### ScopeAnyPermission (OR Logic - Multiple Permissions)
+
+Use when user needs **at least one** of multiple complete permissions (can be different scopes):
+
+```python
+from oxutils.permissions.perms import ScopeAnyPermission
+
+# User needs ANY of these permissions
+@api_controller('/dashboard', permissions=[
+    ScopeAnyPermission(
+        'articles:r',           # Can read articles
+        'invoices:w:staff',     # OR can write invoices as staff
+        'reports:r:admin'       # OR can read reports as admin
+    )
+])
+class DashboardController:
+    # Access granted if user has at least one permission
+    pass
+
+# Complex example with different scopes and contexts
+@api_controller('/analytics', permissions=[
+    ScopeAnyPermission(
+        'analytics:r',
+        'reports:r?department=finance',
+        'data:w:manager'
+    )
+])
+class AnalyticsController:
+    # User needs ANY of these permissions to access
+    pass
+
+# Combining with method-level permissions
+@api_controller('/content')
+class ContentController:
+    @http_get('/', permissions=[
+        ScopeAnyPermission('articles:r', 'pages:r', 'posts:r')
+    ])
+    def list_content(self):
+        # Can read articles OR pages OR posts
+        pass
+    
+    @http_post('/', permissions=[
+        ScopeAnyPermission('articles:w:editor', 'posts:w:contributor')
+    ])
+    def create_content(self):
+        # Can write articles as editor OR posts as contributor
+        pass
+```
+
+**Comparison:**
+
+| Permission Class | Logic | Use Case |
+|-----------------|-------|----------|
+| `ScopePermission` | AND | User must have ALL actions (e.g., `'articles:rw'` = read AND write) |
+| `ScopeAnyActionPermission` | OR | User needs ANY action on one scope (e.g., `'articles:rwd'` = read OR write OR delete) |
+| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/groups) |
 
 ### Assign Role to User
 
@@ -547,22 +690,41 @@ CACHEOPS = {
 
 **How it works:**
 
-- When `CACHE_CHECK_PERMISSION = True`, permission checks are cached for 5 minutes
+- When `CACHE_CHECK_PERMISSION = True`, permission checks are cached for 15 minutes
 - Cache is automatically invalidated when `Grant` model changes
 - Uses `cacheops` `@cached_as` decorator
 - Falls back to non-cached checks if `CACHE_CHECK_PERMISSION = False`
+
+**Cached functions:**
+
+```python
+from oxutils.permissions.caches import (
+    cache_check,                    # Caches check()
+    cache_any_action_check,         # Caches any_action_check()
+    cache_any_permission_check      # Caches any_permission_check()
+)
+
+# All permission classes automatically use cached versions
+ScopePermission('articles:r')              # Uses cache_check
+ScopeAnyActionPermission('articles:rwd')   # Uses cache_any_action_check
+ScopeAnyPermission('articles:r', 'invoices:w')  # Uses cache_any_permission_check
+```
 
 **Performance impact:**
 
 ```python
 # Without cache: Database query every time
 check(user, 'articles', ['r'])  # ~5-10ms
+any_action_check(user, 'articles', ['r', 'w', 'd'])  # ~5-10ms
+any_permission_check(user, 'articles:r', 'invoices:w')  # ~5-10ms
 
 # With cache: Redis lookup after first check
 check(user, 'articles', ['r'])  # ~0.5-1ms (10x faster)
+any_action_check(user, 'articles', ['r', 'w', 'd'])  # ~0.5-1ms (10x faster)
+any_permission_check(user, 'articles:r', 'invoices:w')  # ~0.5-1ms (10x faster)
 ```
 
-**Note:** The cache is shared across `check()` and `str_check()` functions.
+**Note:** All permission check functions (`check`, `str_check`, `any_action_check`, `any_permission_check`) benefit from caching when enabled.
 
 ### Query Optimization
 

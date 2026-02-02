@@ -387,6 +387,194 @@ def check(
     # Vérifier l'existence d'un grant correspondant
     return Grant.objects.filter(grant_filter).exists()
 
+
+def any_action_check(
+    user: AbstractBaseUser,
+    scope: str,
+    required: list[str],
+    group: Optional[str] = None,
+    **context: Any
+) -> bool:
+    """
+    Vérifie si un utilisateur possède au moins une des actions requises pour un scope donné.
+    
+    Cette fonction utilise une seule requête optimisée avec des conditions OR pour vérifier
+    si l'utilisateur possède au moins une des actions dans la liste.
+    
+    Args:
+        user: L'utilisateur dont on vérifie les permissions
+        scope: Le scope à vérifier (ex: 'articles', 'invoices')
+        required: Liste des actions dont au moins une est requise (ex: ['r', 'w'], ['d'])
+        group: Slug du groupe optionnel pour filtrer les grants par groupe
+        **context: Contexte additionnel pour filtrer les grants (clés JSON)
+        
+    Returns:
+        True si l'utilisateur possède au moins une des actions requises, False sinon
+        
+    Example:
+        >>> # Vérifier si l'utilisateur peut lire OU écrire les articles
+        >>> any_action_check(user, 'articles', ['r', 'w'])
+        True
+        >>> # Vérifier avec contexte
+        >>> any_action_check(user, 'articles', ['w', 'd'], tenant_id=123)
+        False
+        >>> # Vérifier dans le contexte d'un groupe spécifique
+        >>> any_action_check(user, 'articles', ['r', 'w'], group='staff')
+        True
+        
+    Note:
+        Les actions sont automatiquement expandées lors de la création du grant,
+        donc si un grant contient ['w'], il contient aussi ['r'] implicitement.
+        Cette fonction vérifie si AU MOINS UNE des actions requises est présente.
+    """
+    # Construire le filtre de base pour l'utilisateur et le scope
+    grant_filter = Q(user__pk=user.pk, scope=scope)
+    
+    # Filtrer par groupe si spécifié
+    if group:
+        grant_filter &= Q(user_group__group__slug=group)
+    
+    # Ajouter les filtres de contexte si fournis
+    if context:
+        grant_filter &= Q(context__contains=context)
+    
+    # Vérifier si au moins une des actions requises est présente dans le grant
+    # Utilise l'opérateur overlap (&&) pour une requête optimale
+    grant_filter &= Q(actions__overlap=required)
+    
+    # Vérifier l'existence d'un grant correspondant
+    return Grant.objects.filter(grant_filter).exists()
+
+
+def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
+    """
+    Vérifie si un utilisateur possède au moins une des permissions fournies.
+    
+    Cette fonction parse toutes les permissions fournies et effectue une seule requête
+    optimisée avec des conditions OR pour vérifier si l'utilisateur possède au moins
+    une des permissions.
+    
+    Args:
+        user: L'utilisateur dont on vérifie les permissions
+        *str_perms: Liste de chaînes de permissions au format standard
+                    (ex: 'articles:r', 'invoices:w:staff', 'users:d?tenant_id=123')
+        
+    Returns:
+        True si l'utilisateur possède au moins une des permissions, False sinon
+        
+    Example:
+        >>> # Vérifier si l'utilisateur peut lire les articles OU écrire les factures
+        >>> any_permission_check(user, 'articles:r', 'invoices:w')
+        True
+        >>> # Avec différents groupes et contextes
+        >>> any_permission_check(
+        ...     user,
+        ...     'articles:w:staff',
+        ...     'invoices:r:admin',
+        ...     'users:d?tenant_id=123'
+        ... )
+        False
+        
+    Note:
+        Toute la vérification se fait au niveau de la base de données avec une seule
+        requête utilisant des conditions OR pour optimiser les performances.
+    """
+    if not str_perms:
+        return False
+    
+    # Construire le filtre de base pour l'utilisateur
+    base_filter = Q(user__pk=user.pk)
+    
+    # Construire les conditions OR pour chaque permission
+    permission_filters = Q()
+    
+    for perm in str_perms:
+        # Parser la permission
+        scope, actions, group, context = parse_permission(perm)
+        
+        # Construire le filtre pour cette permission spécifique
+        perm_filter = Q(scope=scope, actions__overlap=actions)
+        
+        # Ajouter le filtre de groupe si spécifié
+        if group:
+            perm_filter &= Q(user_group__group__slug=group)
+        
+        # Ajouter le filtre de contexte si fourni
+        if context:
+            perm_filter &= Q(context__contains=context)
+        
+        # Ajouter cette permission aux conditions OR
+        permission_filters |= perm_filter
+    
+    # Combiner le filtre de base avec les conditions OR et vérifier l'existence
+    return Grant.objects.filter(base_filter & permission_filters).exists()
+
+
+def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str, Any]]:
+    """
+    Parse une chaîne de permission et retourne ses composants.
+    
+    Args:
+        perm: Chaîne de permission au format "<scope>:<actions>:<group>?key=value&key2=value2"
+              - scope: Le scope (ex: 'articles')
+              - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
+              - group: (Optionnel) Slug du groupe
+              - query params: (Optionnel) Contexte sous forme de query parameters
+              
+    Returns:
+        Tuple contenant (scope, actions_list, group, context_dict)
+        
+    Raises:
+        ValueError: Si le format de la permission est invalide
+        
+    Example:
+        >>> parse_permission('articles:rw')
+        ('articles', ['r', 'w'], None, {})
+        >>> parse_permission('articles:w:staff')
+        ('articles', ['w'], 'staff', {})
+        >>> parse_permission('articles:rw?tenant_id=123&status=published')
+        ('articles', ['r', 'w'], None, {'tenant_id': 123, 'status': 'published'})
+        >>> parse_permission('articles:w:staff?tenant_id=123')
+        ('articles', ['w'], 'staff', {'tenant_id': 123})
+    """
+    # Séparer la partie principale des query params
+    if '?' in perm:
+        from urllib.parse import parse_qs
+
+        main_part, query_string = perm.split('?', 1)
+        # Parser les query params
+        parsed_qs = parse_qs(query_string)
+        # Convertir en dict simple (prendre la première valeur de chaque liste)
+        query_context = {k: v[0] if len(v) == 1 else v for k, v in parsed_qs.items()}
+        # Convertir les valeurs numériques
+        for k, v in query_context.items():
+            if isinstance(v, str) and v.isdigit():
+                query_context[k] = int(v)
+    else:
+        main_part = perm
+        query_context = {}
+    
+    # Parser la partie principale
+    parts = main_part.split(':')
+    
+    if len(parts) < 2:
+        raise ValueError(
+            f"Format de permission invalide: '{perm}'. "
+            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<group>' "
+            "ou '<scope>:<actions>:<group>?key=value&key2=value2'"
+        )
+    
+    scope = parts[0]
+    actions_str = parts[1]
+    group = parts[2] if len(parts) > 2 else None
+    
+    # Convertir la chaîne d'actions en liste
+    # 'rwd' -> ['r', 'w', 'd']
+    actions_list = list(actions_str)
+    
+    return scope, actions_list, group, query_context
+
+
 def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
     """
     Vérifie si un utilisateur possède les permissions requises à partir d'une chaîne formatée.
@@ -422,40 +610,8 @@ def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
     """
     from .caches import cache_check
 
-    # Séparer la partie principale des query params
-    if '?' in perm:
-        from urllib.parse import parse_qs
-
-        main_part, query_string = perm.split('?', 1)
-        # Parser les query params
-        parsed_qs = parse_qs(query_string)
-        # Convertir en dict simple (prendre la première valeur de chaque liste)
-        query_context = {k: v[0] if len(v) == 1 else v for k, v in parsed_qs.items()}
-        # Convertir les valeurs numériques
-        for k, v in query_context.items():
-            if isinstance(v, str) and v.isdigit():
-                query_context[k] = int(v)
-    else:
-        main_part = perm
-        query_context = {}
-    
-    # Parser la partie principale
-    parts = main_part.split(':')
-    
-    if len(parts) < 2:
-        raise ValueError(
-            f"Format de permission invalide: '{perm}'. "
-            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<group>' "
-            "ou '<scope>:<actions>:<group>?key=value&key2=value2'"
-        )
-    
-    scope = parts[0]
-    actions_str = parts[1]
-    group = parts[2] if len(parts) > 2 else None
-    
-    # Convertir la chaîne d'actions en liste
-    # 'rwd' -> ['r', 'w', 'd']
-    required = list(actions_str)
+    # Parser la chaîne de permission
+    scope, required, group, query_context = parse_permission(perm)
     
     # Fusionner les contextes (kwargs ont priorité sur query params)
     final_context = {**query_context, **context}
