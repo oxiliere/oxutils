@@ -11,23 +11,49 @@ from .tokens import OrganizationAccessToken
 logger = structlog.get_logger(__name__)
 
 
+class TenantUser:
+    def __init__(
+        self,
+        oxi_id: str | None = None,
+        id: str | None = None,
+        is_owner: bool = False,
+        is_admin: bool = False,
+        status: str | None = None,
+    ):
+        self.oxi_id = oxi_id
+        self.id = id
+        self.is_owner = is_owner
+        self.is_admin = is_admin
+        self.status = status
+
+    def __bool__(self):
+        return self.status == 'active'
+
+    def is_active(self):
+        return self.status == 'active'
+
+
 class TokenTenant:
 
     def __init__(
         self,
         schema_name: str,
-        tenant_id: int,
+        tenant_id: str,
         oxi_id: str,
         subscription_plan: str,
         subscription_status: str,
-        status: str,
+        subscription_end_date: str | None = None,
+        status: str = 'active',
+        user: TenantUser | None = None,
         ):
         self.schema_name = schema_name
         self.id = tenant_id
         self.oxi_id = oxi_id
         self.subscription_plan = subscription_plan
         self.subscription_status = subscription_status
+        self.subscription_end_date = subscription_end_date
         self.status = status
+        self.user = user
 
     def __str__(self):
         return f"{self.schema_name} - {self.oxi_id}"
@@ -48,14 +74,30 @@ class TokenTenant:
     def for_token(cls, token):
         try:
             token_obj = OrganizationAccessToken(token=token)
+
+            # set the tenant user
+            if 'tenant_user_id' in token_obj and token_obj.get('tenant_user_id'):
+                user = TenantUser(
+                    oxi_id=token_obj.get('tenant_user_oxi_id'),
+                    id=token_obj.get('tenant_user_id'),
+                    is_owner=token_obj.get('tenant_user_is_owner'),
+                    is_admin=token_obj.get('tenant_user_is_admin'),
+                    status=token_obj.get('tenant_user_status'),
+                )
+            else:
+                user = TenantUser()
+            
             tenant = cls(
                 schema_name=token_obj['schema_name'],
                 tenant_id=token_obj['tenant_id'],
                 oxi_id=token_obj['oxi_id'],
                 subscription_plan=token_obj['subscription_plan'],
                 subscription_status=token_obj['subscription_status'],
+                subscription_end_date=token_obj.get('subscription_end_date'),
                 status=token_obj['status'],
+                user=user,
             )
+            
             return tenant
         except Exception:
             logger.exception('Failed to create TokenTenant from token', token=token)

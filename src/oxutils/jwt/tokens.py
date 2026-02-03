@@ -58,6 +58,14 @@ class OrganizationAccessToken(Token):
         token.payload['subscription_end_date'] = str(tenant.subscription_end_date)
         token.payload['status'] = str(tenant.status)
 
+        # Add tenant user info if available
+        if hasattr(tenant, 'user'):
+            token.payload['tenant_user_oxi_id'] = str(tenant.user.user.oxi_id)
+            token.payload['tenant_user_id'] = str(tenant.user.id)
+            token.payload['tenant_user_is_owner'] = tenant.user.is_owner
+            token.payload['tenant_user_is_admin'] = tenant.user.is_admin
+            token.payload['tenant_user_status'] = str(tenant.user.status)
+
         return token
 
     @property

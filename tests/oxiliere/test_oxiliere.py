@@ -129,16 +129,17 @@ class TestTenantMainMiddleware(TestCase):
     @patch('oxutils.oxiliere.middleware.connection')
     def test_tenant_not_found_raises_404(self, mock_connection):
         """Test that non-existent tenant raises 404."""
-        from django_tenants.utils import get_tenant_model
+        from django.http import Http404
         
         mock_connection.set_schema_to_public = Mock()
         mock_connection.tenant_model = Mock()
-        mock_connection.tenant_model.DoesNotExist = Exception
+        mock_connection.tenant_model.DoesNotExist = Http404
         
         request = self.factory.get('/', HTTP_X_ORGANIZATION_ID='nonexistent')
+        request.user = Mock()  # Add user attribute
         
         with patch.object(self.middleware, 'get_tenant') as mock_get_tenant:
-            mock_get_tenant.side_effect = mock_connection.tenant_model.DoesNotExist
+            mock_get_tenant.side_effect = Http404
             
             with pytest.raises(Http404):
                 self.middleware.process_request(request)
@@ -146,6 +147,8 @@ class TestTenantMainMiddleware(TestCase):
     @patch('oxutils.oxiliere.middleware.connection')
     def test_successful_tenant_switch(self, mock_connection):
         """Test successful tenant schema switch."""
+        from django.contrib.auth.models import AnonymousUser
+        
         mock_tenant = Mock()
         mock_tenant.oxi_id = 'acme-corp'
         mock_tenant.schema_name = 'tenant_acmecorp'
@@ -157,6 +160,7 @@ class TestTenantMainMiddleware(TestCase):
         mock_connection.set_tenant = Mock()
         
         request = self.factory.get('/', HTTP_X_ORGANIZATION_ID='acme-corp')
+        request.user = AnonymousUser()  # Add user attribute
         
         with patch.object(self.middleware, 'get_tenant', return_value=mock_tenant):
             with patch.object(self.middleware, 'setup_url_routing'):

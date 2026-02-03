@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection
 from django.http import Http404
 from django.urls import set_urlconf
@@ -44,6 +45,11 @@ class TenantMainMiddleware(MiddlewareMixin):
         """
         return tenant_model.objects.get(oxi_id=oxi_id)
 
+    def get_tenant_user(self, tenant, user):
+        """ Get tenant user by tenant and user.
+        """
+        return tenant.users.select_related('user').get(user=user)
+
     def process_request(self, request):
         # Connection needs first to be at the public schema, as this is where
         # the tenant metadata is stored.
@@ -69,9 +75,10 @@ class TenantMainMiddleware(MiddlewareMixin):
                 tenant_model = connection.tenant_model
                 try:
                     tenant = self.get_tenant(tenant_model, oxi_id)
+                    tenant.user = self.get_tenant_user(tenant, request.user)
                     # Mark that we need to set the cookie in the response
                     request._should_set_tenant_cookie = True
-                except tenant_model.DoesNotExist:
+                except ObjectDoesNotExist:
                     default_tenant = self.no_tenant_found(request, oxi_id)
                     return default_tenant
             else: # try to return the system tenant

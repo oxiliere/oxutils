@@ -17,6 +17,7 @@ from ninja_jwt.authentication import (
     JWTStatelessUserAuthentication
 )
 from ninja.security import (
+    HttpBearer,
     APIKeyCookie,
     HttpBasicAuth,
 )
@@ -176,6 +177,11 @@ class BasicAuth(HttpBasicAuth):
 
 class BasicNoPasswordAuth(HttpBasicAuth):
     def authenticate(self, request: HttpRequest, username: str, password: str) -> Optional[Any]:
+
+        # check if the middleware have already authenticated the user
+        if request.user.is_authenticated:
+            return request.user
+        
         try:
             user = get_user_model().objects.get(email=username)
             if user and user.is_active:
@@ -185,11 +191,33 @@ class BasicNoPasswordAuth(HttpBasicAuth):
         except Exception as e:
             return None
 
-x_session_token_auth = XSessionTokenAuth()
+
+class JWTPassiveAuth(HttpBearer):
+    def authenticate(self, request: HttpRequest, token: str) -> Optional[Any]:
+        if request.user.is_authenticated:
+            return request.user
+        return None
+
+
+class JWTCookiePassiveAuth(APIKeyCookie):
+    def authenticate(self, request: HttpRequest, key: Optional[str]) -> Optional[Any]:
+        if request.user.is_authenticated:
+            return request.user
+        return None
+
+
+# for development Purpose only
 basic_auth = BasicAuth()
 basic_no_password_auth = BasicNoPasswordAuth()
+
+# used on oxiliere authentication service
+x_session_token_auth = XSessionTokenAuth()
 jwt_auth = JWTAuth()
 jwt_cookie_auth = JWTCookieAuth()
+
+# Production in all oxiliere services
+jwt_passive_auth = JWTPassiveAuth()
+jwt_cookie_passive_auth = JWTCookiePassiveAuth()
 
 
 
@@ -202,3 +230,13 @@ def get_auth_handlers(auths: List[AuthBase] = []) -> List[AuthBase]:
         return auths
 
     return [jwt_auth, jwt_cookie_auth]
+
+
+def get_passive_auth_handlers(auths: List[AuthBase] = []) -> List[AuthBase]:
+    """Passive auth handler switcher based on settings.DEBUG"""
+    from django.conf import settings
+
+    if settings.DEBUG:
+        return auths
+    
+    return [jwt_passive_auth, jwt_cookie_passive_auth]
