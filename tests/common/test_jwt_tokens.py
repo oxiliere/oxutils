@@ -6,7 +6,13 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 from django.conf import settings
 from oxutils.jwt.tokens import OxilierServiceToken, OrganizationAccessToken
-from oxutils.jwt.models import TokenTenant
+from oxutils.jwt.models import TokenTenant, TenantUser
+
+
+
+user = TenantUser()
+user.user = Mock()
+user.user.oxi_id = 'test-user'
 
 
 class TestOxilierServiceToken:
@@ -80,7 +86,6 @@ class TestOrganizationAccessToken:
         mock_tenant.schema_name = 'tenant_schema'
         mock_tenant.subscription_plan = 'premium'
         mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
         mock_tenant.status = 'active'
         
         token = OrganizationAccessToken.for_tenant(mock_tenant)
@@ -100,7 +105,6 @@ class TestOrganizationAccessToken:
         mock_tenant.schema_name = 'test'
         mock_tenant.subscription_plan = 'basic'
         mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
         mock_tenant.status = 'active'
         
         token = OrganizationAccessToken.for_tenant(mock_tenant)
@@ -109,16 +113,17 @@ class TestOrganizationAccessToken:
     
     def test_org_token_encoding(self):
         """Test encoding organization token."""
-        mock_tenant = Mock()
-        mock_tenant.id = 1
-        mock_tenant.oxi_id = 'test-org'
-        mock_tenant.schema_name = 'test_schema'
-        mock_tenant.subscription_plan = 'basic'
-        mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
-        mock_tenant.status = 'active'
+        tenant = TokenTenant(
+            tenant_id=1,
+            oxi_id='test-org',
+            schema_name='test_schema',
+            subscription_plan='basic',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
-        token = OrganizationAccessToken.for_tenant(mock_tenant)
+        token = OrganizationAccessToken.for_tenant(tenant)
         token_str = str(token)
         
         assert isinstance(token_str, str)
@@ -127,16 +132,17 @@ class TestOrganizationAccessToken:
     
     def test_org_token_decoding(self):
         """Test decoding organization token."""
-        mock_tenant = Mock()
-        mock_tenant.id = 456
-        mock_tenant.oxi_id = 'org-456'
-        mock_tenant.schema_name = 'org_schema'
-        mock_tenant.subscription_plan = 'enterprise'
-        mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
-        mock_tenant.status = 'active'
+        tenant = TokenTenant(
+            tenant_id=456,
+            oxi_id='org-456',
+            schema_name='org_schema',
+            subscription_plan='enterprise',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
-        original_token = OrganizationAccessToken.for_tenant(mock_tenant)
+        original_token = OrganizationAccessToken.for_tenant(tenant)
         token_str = str(original_token)
         
         decoded_token = OrganizationAccessToken(token=token_str)
@@ -153,7 +159,6 @@ class TestOrganizationAccessToken:
         mock_tenant.schema_name = 'test'
         mock_tenant.subscription_plan = 'basic'
         mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
         mock_tenant.status = 'active'
         
         token = OrganizationAccessToken.for_tenant(mock_tenant)
@@ -177,7 +182,8 @@ class TestTokenTenant:
             oxi_id='org-123',
             subscription_plan='premium',
             subscription_status='active',
-            status='active'
+            status='active',
+            user=user
         )
         
         assert tenant.schema_name == 'test_schema'
@@ -195,7 +201,8 @@ class TestTokenTenant:
             oxi_id='org-456',
             subscription_plan='basic',
             subscription_status='active',
-            status='active'
+            status='active',
+            user=user
         )
         
         assert tenant.pk == 456
@@ -209,34 +216,36 @@ class TestTokenTenant:
             oxi_id='org-uuid',
             subscription_plan='basic',
             subscription_status='active',
-            status='active'
+            status='active',
+            user=user
         )
         
         assert str(tenant) == 'my_schema - org-uuid'
     
     def test_token_tenant_for_token_success(self):
         """Test creating TokenTenant from valid token."""
-        mock_tenant = Mock()
-        mock_tenant.id = 789
-        mock_tenant.oxi_id = 'org-789'
-        mock_tenant.schema_name = 'tenant_789'
-        mock_tenant.subscription_plan = 'enterprise'
-        mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
-        mock_tenant.status = 'active'
+        tenant = TokenTenant(
+            tenant_id=789,
+            oxi_id='org-789',
+            schema_name='tenant_789',
+            subscription_plan='enterprise',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
         # Create token
-        token = OrganizationAccessToken.for_tenant(mock_tenant)
+        token = OrganizationAccessToken.for_tenant(tenant)
         token_str = str(token)
         
         # Create TokenTenant from token
-        tenant = TokenTenant.for_token(token_str)
+        result_tenant = TokenTenant.for_token(token_str)
         
-        assert tenant is not None
-        assert tenant.id == '789'
-        assert tenant.oxi_id == 'org-789'
-        assert tenant.schema_name == 'tenant_789'
-        assert tenant.subscription_plan == 'enterprise'
+        assert result_tenant is not None
+        assert result_tenant.id == '789'
+        assert result_tenant.oxi_id == 'org-789'
+        assert result_tenant.schema_name == 'tenant_789'
+        assert result_tenant.subscription_plan == 'enterprise'
     
     def test_token_tenant_for_token_invalid(self):
         """Test creating TokenTenant from invalid token returns None."""
@@ -246,24 +255,25 @@ class TestTokenTenant:
     
     def test_token_tenant_for_token_expired(self):
         """Test creating TokenTenant from expired token returns None."""
-        mock_tenant = Mock()
-        mock_tenant.id = 1
-        mock_tenant.oxi_id = 'test'
-        mock_tenant.schema_name = 'test'
-        mock_tenant.subscription_plan = 'basic'
-        mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
-        mock_tenant.status = 'active'
+        tenant = TokenTenant(
+            tenant_id=1,
+            oxi_id='test',
+            schema_name='test',
+            subscription_plan='basic',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
         # Create token and manually expire it
-        token = OrganizationAccessToken.for_tenant(mock_tenant)
+        token = OrganizationAccessToken.for_tenant(tenant)
         token.payload['exp'] = datetime.now() - timedelta(hours=1)
         token_str = str(token)
         
         # Should return None for expired token
-        tenant = TokenTenant.for_token(token_str)
+        result_tenant = TokenTenant.for_token(token_str)
         
-        assert tenant is None
+        assert result_tenant is None
 
 
 class TestTokenIntegration:
@@ -285,49 +295,52 @@ class TestTokenIntegration:
     
     def test_org_token_to_tenant_model(self):
         """Test converting organization token to TokenTenant."""
-        mock_tenant = Mock()
-        mock_tenant.id = 999
-        mock_tenant.oxi_id = 'org-999'
-        mock_tenant.schema_name = 'org_999_schema'
-        mock_tenant.subscription_plan = 'premium'
-        mock_tenant.subscription_status = 'active'
-        mock_tenant.subscription_end_date = '2025-12-31'
-        mock_tenant.status = 'active'
+        tenant = TokenTenant(
+            tenant_id=999,
+            oxi_id='org-999',
+            schema_name='org_999_schema',
+            subscription_plan='premium',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
         # Create token from tenant
-        token = OrganizationAccessToken.for_tenant(mock_tenant)
+        token = OrganizationAccessToken.for_tenant(tenant)
         token_str = str(token)
         
         # Recreate tenant from token
-        tenant = TokenTenant.for_token(token_str)
+        result_tenant = TokenTenant.for_token(token_str)
         
-        assert tenant.id == '999'
-        assert tenant.oxi_id == 'org-999'
-        assert tenant.schema_name == 'org_999_schema'
-        assert tenant.subscription_plan == 'premium'
+        assert result_tenant.id == '999'
+        assert result_tenant.oxi_id == 'org-999'
+        assert result_tenant.schema_name == 'org_999_schema'
+        assert result_tenant.subscription_plan == 'premium'
     
     def test_multiple_tokens_different_data(self):
         """Test creating multiple tokens with different data."""
-        mock_tenant1 = Mock()
-        mock_tenant1.id = 1
-        mock_tenant1.oxi_id = 'org-1'
-        mock_tenant1.schema_name = 'schema_1'
-        mock_tenant1.subscription_plan = 'basic'
-        mock_tenant1.subscription_status = 'active'
-        mock_tenant1.subscription_end_date = '2025-12-31'
-        mock_tenant1.status = 'active'
+        tenant1 = TokenTenant(
+            tenant_id=1,
+            oxi_id='org-1',
+            schema_name='schema_1',
+            subscription_plan='basic',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
-        mock_tenant2 = Mock()
-        mock_tenant2.id = 2
-        mock_tenant2.oxi_id = 'org-2'
-        mock_tenant2.schema_name = 'schema_2'
-        mock_tenant2.subscription_plan = 'premium'
-        mock_tenant2.subscription_status = 'active'
-        mock_tenant2.subscription_end_date = '2025-12-31'
-        mock_tenant2.status = 'active'
+        tenant2 = TokenTenant(
+            tenant_id=2,
+            oxi_id='org-2',
+            schema_name='schema_2',
+            subscription_plan='premium',
+            subscription_status='active',
+            status='active',
+            user=user
+        )
         
-        token1 = OrganizationAccessToken.for_tenant(mock_tenant1)
-        token2 = OrganizationAccessToken.for_tenant(mock_tenant2)
+        token1 = OrganizationAccessToken.for_tenant(tenant1)
+        token2 = OrganizationAccessToken.for_tenant(tenant2)
         
         assert token1['tenant_id'] != token2['tenant_id']
         assert token1['oxi_id'] != token2['oxi_id']

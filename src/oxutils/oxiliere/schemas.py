@@ -1,6 +1,9 @@
 from typing import Optional
 from uuid import UUID 
 from ninja import Schema
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.utils.module_loading import import_string
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django_tenants.utils import get_tenant_model
@@ -11,6 +14,18 @@ from oxutils.oxiliere.authorization import grant_manager_access_to_owners
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+
+def get_tenant_schema() -> 'TenantSchema':
+    if hasattr(settings, 'OX_TENANT_SCHEMA'):
+        try:
+            return import_string(settings.OX_TENANT_SCHEMA)
+        except ImportError as e:
+            raise ImproperlyConfigured(
+                f"Error: OX_TENANT_SCHEMA import error: {settings.OX_TENANT_SCHEMA}, please check your settings"
+            ) from e
+    return TenantSchema
 
 
 class TenantSchema(Schema):
@@ -27,6 +42,22 @@ class TenantOwnerSchema(Schema):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: str
+
+
+class UserSchema(Schema):
+    oxi_id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: str
+    is_active: bool
+    photo: Optional[str] = None
+
+
+class TenantUser(Schema):
+    user: UserSchema
+    is_owner: bool
+    is_admin: bool
+    status: str
 
 
 class CreateTenantSchema(Schema):
