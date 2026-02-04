@@ -148,27 +148,43 @@ class TestTenantMainMiddleware(TestCase):
     def test_successful_tenant_switch(self, mock_connection):
         """Test successful tenant schema switch."""
         from django.contrib.auth.models import AnonymousUser
+        from oxutils.jwt.models import TokenTenant
         
-        mock_tenant = Mock()
+        mock_connection.set_schema_to_public = Mock()
+        
+        # Create a real class for tenant_model and mock_tenant so isinstance works
+        TenantModel = type('TenantModel', (), {})
+        mock_connection.tenant_model = TenantModel
+        mock_connection.set_tenant = Mock()
+        
+        # Create mock_tenant as instance of TenantModel so isinstance works
+        mock_tenant = Mock(spec=TenantModel)
+        mock_tenant.id = "test-id"
         mock_tenant.oxi_id = 'acme-corp'
         mock_tenant.schema_name = 'tenant_acmecorp'
         mock_tenant.is_deleted = False
         mock_tenant.is_active = True
-        
-        mock_connection.set_schema_to_public = Mock()
-        mock_connection.tenant_model = Mock()
-        mock_connection.set_tenant = Mock()
+        mock_tenant.subscription_plan = 'basic'
+        mock_tenant.subscription_status = 'active'
+        mock_tenant.subscription_end_date = '2025-12-31'
+        mock_tenant.status = 'active'
         
         request = self.factory.get('/', HTTP_X_ORGANIZATION_ID='acme-corp')
         request.user = AnonymousUser()  # Add user attribute
         
         with patch.object(self.middleware, 'get_tenant', return_value=mock_tenant):
-            with patch.object(self.middleware, 'setup_url_routing'):
-                with patch('oxutils.oxiliere.middleware.set_current_tenant_schema_name'):
-                    self.middleware.process_request(request)
+            with patch.object(self.middleware, 'get_tenant_user', return_value=Mock()):
+                with patch.object(self.middleware, 'setup_url_routing'):
+                    with patch('oxutils.oxiliere.middleware.set_current_tenant_schema_name'):
+                        self.middleware.process_request(request)
         
-        assert request.tenant == mock_tenant
-        mock_connection.set_tenant.assert_called_once_with(mock_tenant)
+        # Check that request.tenant is now a TokenTenant (not the original mock)
+        assert isinstance(request.tenant, TokenTenant)
+        assert request.tenant.oxi_id == 'acme-corp'
+        assert request.tenant.schema_name == 'tenant_acmecorp'
+        
+        # Check that request.db_tenant is the original DB tenant
+        assert request.db_tenant == mock_tenant
 
 
 @pytest.mark.django_db

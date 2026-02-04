@@ -1,81 +1,95 @@
+import structlog
+
 from ninja_extra.permissions import BasePermission
-from oxutils.oxiliere.utils import get_tenant_user_model
 from oxutils.constants import OXILIERE_SERVICE_TOKEN
 from oxutils.jwt.tokens import OxilierServiceToken
+from oxutils.jwt.models import TokenTenant
 
 
 
-class TenantPermission(BasePermission):
+logger = structlog.get_logger(__name__)
+
+
+
+
+class TenantBasePermission(BasePermission):
     """
     Vérifie que l'utilisateur a accès au tenant actuel.
     L'utilisateur doit être authentifié et avoir un lien avec le tenant.
     """
+    def check_tenant_permission(self, request) -> bool:
+        raise NotImplementedError("Subclasses must implement this method")
+
     def has_permission(self, request, **kwargs):
         if not request.user or not request.user.is_authenticated:
             return False
         
         if not hasattr(request, 'tenant'):
+            logger.warning('tenant_permission', type="tenant_not_found", user=request.user)
             return False
-        
-        # Vérifier que l'utilisateur a accès à ce tenant
-        return get_tenant_user_model().objects.filter(
-            tenant__pk=request.tenant.pk,
-            user__pk=request.user.pk
-        ).exists()
 
-
-class TenantOwnerPermission(BasePermission):
-    """
-    Vérifie que l'utilisateur est propriétaire (owner) du tenant actuel.
-    """
-    def has_permission(self, request, **kwargs):
-        if not request.user or not request.user.is_authenticated:
+        if not isinstance(request.tenant, TokenTenant):
+            logger.warning(
+                'tenant_permission', 
+                type="tenant_is_not_token_tenant", 
+                tenant=request.tenant, 
+                user=request.user
+            )
             return False
-        
-        if not hasattr(request, 'tenant'):
-            return False
-        
-        return get_tenant_user_model().objects.filter(
-            tenant__pk=request.tenant.pk,
-            user__pk=request.user.pk,
-            is_owner=True
-        ).exists()
+
+        return self.check_tenant_permission(request)
 
 
-class TenantAdminPermission(BasePermission):
-    """
-    Vérifie que l'utilisateur est admin ou owner du tenant actuel.
-    """
-    def has_permission(self, request, **kwargs):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        
-        if not hasattr(request, 'tenant'):
-            return False
-        
-        return get_tenant_user_model().objects.filter(
-            tenant__pk=request.tenant.pk,
-            user__pk=request.user.pk,
-            is_admin=True
-        ).exists()
-
-
-class TenantUserPermission(BasePermission):
+class TenantUserPermission(TenantBasePermission):
     """
     Vérifie que l'utilisateur est un membre du tenant actuel.
     Alias de TenantPermission pour plus de clarté sémantique.
     """
-    def has_permission(self, request, **kwargs):
-        if not request.user or not request.user.is_authenticated:
-            return False
+    def check_tenant_permission(self, request) -> bool:
+        tenant: TokenTenant = request.tenant
+
+        logger.info(
+            'tenant_permission', 
+            type="tenant_user_access_permission", 
+            tenant=tenant, user=request.user, 
+            passed=tenant.is_tenant_user
+        )
         
-        if not hasattr(request, 'tenant'):
-            return False
+        return tenant.is_tenant_user
+
+
+class TenantOwnerPermission(TenantBasePermission):
+    """
+    Vérifie que l'utilisateur est propriétaire (owner) du tenant actuel.
+    """
+    def check_tenant_permission(self, request) -> bool:
+        tenant: TokenTenant = request.tenant
+
+        logger.info(
+            'tenant_permission', 
+            type="tenant_user_access_permission", 
+            tenant=tenant, user=request.user, 
+            passed=tenant.is_owner_user
+        )
         
-        return get_tenant_user_model().objects.filter(
-            tenant__pk=request.tenant.pk,
-            user__pk=request.user.pk
-        ).exists()
+        return tenant.is_owner_user
+
+
+class TenantAdminPermission(TenantBasePermission):
+    """
+    Vérifie que l'utilisateur est admin ou owner du tenant actuel.
+    """
+    def check_tenant_permission(self, request) -> bool:
+        tenant: TokenTenant = request.tenant
+
+        logger.info(
+            'tenant_permission', 
+            type="tenant_user_access_permission", 
+            tenant=tenant, user=request.user, 
+            passed=tenant.is_admin_user
+        )
+        
+        return tenant.is_admin_user
 
 
 class OxiliereServicePermission(BasePermission):
@@ -95,3 +109,10 @@ class OxiliereServicePermission(BasePermission):
             return True
         except Exception:
             return False
+
+
+
+IsTenantUser = TenantUserPermission()
+IsTenantOwner = TenantOwnerPermission()
+IsTenantAdmin = TenantAdminPermission()
+IsOxiliereService = OxiliereServicePermission()

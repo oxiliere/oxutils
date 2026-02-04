@@ -70,6 +70,30 @@ class TokenTenant:
     def is_deleted(self):
         return self.status == 'deleted'
 
+    def __bool__(self):
+        return self.status == 'active'
+
+    @property
+    def is_admin_user(self):
+        if self.user:
+            return self.user.is_admin
+        return False
+
+    @property
+    def is_owner_user(self):
+        if self.user:
+            return self.user.is_owner
+        return False
+
+    @property
+    def is_tenant_user(self):
+        if self.user:
+            return self.user.is_active()
+        return False
+
+    def get_tenant_type(self):
+        return self.subscription_status
+
     @classmethod
     def for_token(cls, token):
         try:
@@ -102,6 +126,36 @@ class TokenTenant:
         except Exception:
             logger.exception('Failed to create TokenTenant from token', token=token)
             return None
+
+    @classmethod
+    def from_db(cls, tenant) -> 'TokenTenant':
+        if not tenant:
+            raise ValueError('Tenant is required')
+
+        if hasattr(tenant, 'user') and tenant.user:
+            user = TenantUser(
+                oxi_id=tenant.user.user.oxi_id,
+                id=tenant.user.id,
+                is_owner=tenant.user.is_owner,
+                is_admin=tenant.user.is_admin,
+                status=tenant.user.status,
+            )
+        else:
+            user = TenantUser()
+            
+        return cls(
+            schema_name=tenant.schema_name,
+            tenant_id=tenant.id,
+            oxi_id=tenant.oxi_id,
+            subscription_plan=tenant.subscription_plan,
+            subscription_status=tenant.subscription_status,
+            subscription_end_date=tenant.subscription_end_date,
+            status=tenant.status,
+            user=user,
+        )
+
+    def __repr__(self):
+        return f"TokenTenant(schema_name='{self.schema_name}', oxi_id='{self.oxi_id}', status='{self.status}')"
 
 
 class TokenUser(DefaultTonkenUser):

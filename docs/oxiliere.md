@@ -94,7 +94,8 @@ INSTALLED_APPS = [
 
 # Middleware (IMPORTANT: Order matters!)
 MIDDLEWARE = [
-    'oxutils.oxiliere.middleware.TenantMainMiddleware',  # Must be first!
+    'oxutils.jwt.middleware.JWTCookieAuthMiddleware', # Must be first!
+    'oxutils.oxiliere.middleware.TenantMainMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -338,30 +339,54 @@ DEFAULT_NOT_FOUND_TENANT_VIEW = 'myapp.views.tenant_not_found'
 
 ## Permissions
 
-### TenantPermission
+The permission system uses `TokenTenant` from the middleware to verify user access rights. All tenant permissions check that `request.tenant` is a valid `TokenTenant` instance with the appropriate user relationship.
 
-Verifies user has access to the current tenant.
+### Available Permission Classes
+
+| Permission | Description | Use Case |
+|------------|-------------|----------|
+| `TenantUserPermission` / `IsTenantUser` | User is a member of the current tenant | General tenant access |
+| `TenantOwnerPermission` / `IsTenantOwner` | User is the owner of the tenant | Sensitive operations |
+| `TenantAdminPermission` / `IsTenantAdmin` | User is admin or owner of the tenant | Administrative functions |
+| `OxiliereServicePermission` / `IsOxiliereService` | Request from internal Oxiliere service | Internal APIs |
+
+### TenantUserPermission (IsTenantUser)
+
+Verifies the user is an active member of the current tenant.
 
 ```python
 from ninja_extra import api_controller, http_get
-from oxutils.oxiliere.permissions import TenantPermission
+from oxutils.oxiliere.permissions import TenantUserPermission, IsTenantUser
 
-@api_controller('/orders', permissions=[TenantPermission()])
+# Using class
+@api_controller('/orders', permissions=[TenantUserPermission()])
 class OrderController:
     @http_get('/')
     def list_orders(self, request):
         # User must be a member of the tenant
         return Order.objects.all()
+
+# Using singleton instance (recommended)
+@api_controller('/products', permissions=[IsTenantUser])
+class ProductController:
+    @http_get('/')
+    def list_products(self, request):
+        pass
 ```
 
-### TenantOwnerPermission
+**Requirements:**
+- `request.user` must be authenticated
+- `request.tenant` must be a `TokenTenant` instance
+- `request.tenant.user` must exist and be active (`is_tenant_user` property)
 
-Verifies user is the owner of the current tenant.
+### TenantOwnerPermission (IsTenantOwner)
+
+Verifies the user is the owner of the current tenant.
 
 ```python
-from oxutils.oxiliere.permissions import TenantOwnerPermission
+from oxutils.oxiliere.permissions import TenantOwnerPermission, IsTenantOwner
 
-@api_controller('/settings', permissions=[TenantOwnerPermission()])
+@api_controller('/settings', permissions=[IsTenantOwner])
 class SettingsController:
     @http_post('/update')
     def update_settings(self, request, payload):
@@ -369,14 +394,18 @@ class SettingsController:
         pass
 ```
 
-### TenantAdminPermission
+**Requirements:**
+- All `TenantUserPermission` requirements
+- `request.tenant.user.is_owner` must be `True`
 
-Verifies user is an admin or owner of the current tenant.
+### TenantAdminPermission (IsTenantAdmin)
+
+Verifies the user is an admin or owner of the current tenant.
 
 ```python
-from oxutils.oxiliere.permissions import TenantAdminPermission
+from oxutils.oxiliere.permissions import TenantAdminPermission, IsTenantAdmin
 
-@api_controller('/users', permissions=[TenantAdminPermission()])
+@api_controller('/users', permissions=[IsTenantAdmin])
 class UserManagementController:
     @http_post('/invite')
     def invite_user(self, request, email: str):
@@ -384,20 +413,88 @@ class UserManagementController:
         pass
 ```
 
-### OxiliereServicePermission
+**Requirements:**
+- All `TenantUserPermission` requirements
+- `request.tenant.user.is_admin` must be `True`
+
+### OxiliereServicePermission (IsOxiliereService)
 
 Verifies request comes from an internal Oxiliere service.
 
 ```python
-from oxutils.oxiliere.permissions import OxiliereServicePermission
+from oxutils.oxiliere.permissions import OxiliereServicePermission, IsOxiliereService
 
-@api_controller('/setup', permissions=[OxiliereServicePermission()])
+@api_controller('/setup', permissions=[IsOxiliereService])
 class SetupController:
     @http_post('/init')
     def init_tenant(self, payload):
         # Only internal services can access
         # Requires X-Oxiliere-Service-Token header
         pass
+```
+
+**Header Required:**
+```http
+X-Oxiliere-Service-Token: <service-token>
+```
+
+### Custom Tenant Permissions
+
+Extend `TenantBasePermission` to create custom tenant-based permissions:
+
+```python
+from oxutils.oxiliere.permissions import TenantBasePermission
+
+class TenantBillingPermission(TenantBasePermission):
+    """Custom permission for billing operations."""
+    
+    def check_tenant_permission(self, request) -> bool:
+        tenant = request.tenant
+        # Custom logic here
+        return tenant.subscription_plan in ['premium', 'enterprise']
+
+# Usage
+@api_controller('/billing', permissions=[TenantBillingPermission()])
+class BillingController:
+    pass
+```
+
+### How Permissions Work
+
+1. **Base Check** (`TenantBasePermission.has_permission`):
+   - Verifies `request.user.is_authenticated`
+   - Verifies `request.tenant` exists and is a `TokenTenant`
+   - Calls `check_tenant_permission()` for specific logic
+
+2. **TokenTenant Properties**:
+   - `is_tenant_user`: True if user exists and is active
+   - `is_owner_user`: True if user is owner
+   - `is_admin_user`: True if user is admin
+
+3. **Logging**: All permission checks are logged with structured logging:
+   ```python
+   logger.info('tenant_permission', 
+               type="tenant_user_access_permission",
+               tenant=tenant, 
+               user=request.user,
+               passed=True)
+   ```
+
+### Combining Permissions
+
+```python
+from ninja_extra.permissions import AND, OR, NOT
+from oxutils.oxiliere.permissions import IsTenantAdmin, IsTenantOwner
+
+# Admin OR Owner
+@api_controller('/admin', permissions=[OR(IsTenantAdmin, IsTenantOwner)])
+class AdminController:
+    pass
+
+# Owner AND specific condition
+@api_controller('/delete', permissions=[AND(IsTenantOwner, CustomPermission())])
+class DeleteController:
+    pass
 ```
 
 ## Utilities
