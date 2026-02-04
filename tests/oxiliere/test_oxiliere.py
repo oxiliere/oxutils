@@ -91,7 +91,19 @@ class TestTenantMainMiddleware(TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.factory = RequestFactory()
+        # Patch get_tenant_model to avoid LookupError for 'tests' app
+        TenantModel = type('TenantModel', (), {})
+        TenantModel.DoesNotExist = Exception
+        self.get_tenant_model_patch = patch(
+            'django_tenants.utils.get_tenant_model',
+            return_value=TenantModel
+        )
+        self.get_tenant_model_patch.start()
         self.middleware = self._get_middleware()
+
+    def tearDown(self):
+        """Clean up patches."""
+        self.get_tenant_model_patch.stop()
 
     def _get_middleware(self):
         """Get middleware instance."""

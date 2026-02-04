@@ -13,6 +13,7 @@ from django_tenants.utils import (
     get_public_schema_urlconf,
     get_tenant_types,
     has_multi_type_tenants,
+    get_tenant_model
 )
 from oxutils.settings import oxi_settings
 from oxutils.constants import (
@@ -38,6 +39,10 @@ class TenantMainMiddleware(MiddlewareMixin):
     various ways which is better than corrupting or revealing data.
     """
 
+    def __init__(self, get_response):
+        super().__init__(get_response)
+        self.tenant_model = get_tenant_model()
+
     @staticmethod
     def get_org_id_from_request(request):
         """ Extracts organization ID from request header X-Organization-ID.
@@ -45,10 +50,10 @@ class TenantMainMiddleware(MiddlewareMixin):
         custom = 'HTTP_' + ORGANIZATION_HEADER_KEY.upper().replace('-', '_')
         return request.headers.get(ORGANIZATION_HEADER_KEY) or request.META.get(custom)
 
-    def get_tenant(self, tenant_model, oxi_id):
+    def get_tenant(self, oxi_id):
         """ Get tenant by oxi_id instead of domain.
         """
-        return tenant_model.objects.get(oxi_id=oxi_id)
+        return self.tenant_model.objects.get(oxi_id=oxi_id)
 
     def get_tenant_user(self, tenant, user, raise_exception=False):
         """ Get tenant user by tenant and user.
@@ -73,7 +78,6 @@ class TenantMainMiddleware(MiddlewareMixin):
         connection.set_schema_to_public()
         
         oxi_id = self.get_org_id_from_request(request)
-        tenant_model = connection.tenant_model
 
         # Try to get tenant from cookie token first
         tenant_token = request.COOKIES.get(ORGANIZATION_TOKEN_COOKIE_KEY)
@@ -93,7 +97,7 @@ class TenantMainMiddleware(MiddlewareMixin):
         if not tenant:
             if oxi_id: # fetch with oxi_id on tenant
                 try:
-                    tenant = self.get_tenant(tenant_model, oxi_id)
+                    tenant = self.get_tenant(oxi_id)
                     tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=True)
 
                     # Mark that we need to set the cookie in the response
@@ -110,7 +114,12 @@ class TenantMainMiddleware(MiddlewareMixin):
                 try:
                     from oxutils.oxiliere.caches import get_system_tenant
                     tenant = get_system_tenant()
-                    tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=False)
+
+                    if hasattr(request, 'user') and request.user:
+                        tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=False)
+                    else:
+                        tenant.user = None
+                    
                     request._should_set_tenant_cookie = True
                 except Exception as e:
                     logger.error("system_tenant_not_found", error=str(e))
@@ -121,12 +130,12 @@ class TenantMainMiddleware(MiddlewareMixin):
             logger.error("tenant_is_deleted_or_inactive", oxi_id=oxi_id)
             return self.no_tenant_found(request, oxi_id)
 
-        if tenant and not isinstance(tenant, TokenTenant):
-            request.db_tenant = tenant
-        else:
+        if tenant and isinstance(tenant, TokenTenant):
             request.db_tenant = None
-
-        request.tenant = TokenTenant.from_db(tenant)
+            request.tenant = tenant
+        else:
+            request.db_tenant = tenant
+            request.tenant = TokenTenant.from_db(tenant)
 
         set_current_tenant_schema_name(tenant.schema_name)
         connection.set_tenant(request.tenant)
@@ -135,7 +144,7 @@ class TenantMainMiddleware(MiddlewareMixin):
     def process_response(self, request, response):
         """Set the tenant token cookie if needed."""
         if hasattr(request, '_should_set_tenant_cookie') and request._should_set_tenant_cookie:
-            if hasattr(request, 'db_tenant') and isinstance(request.db_tenant, connection.tenant_model):
+            if hasattr(request, 'db_tenant') and isinstance(request.db_tenant, self.tenant_model):
                 # Generate token from DB tenant
                 token = OrganizationAccessToken.for_tenant(request.db_tenant)
                 response.set_cookie(
