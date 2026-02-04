@@ -59,7 +59,7 @@ class OrganizationAccessToken(Token):
         token.payload['status'] = str(tenant.status)
 
         # Add tenant user info if available
-        if hasattr(tenant, 'user'):
+        if hasattr(tenant, 'user') and tenant.user:
             token.payload['tenant_user_oxi_id'] = str(tenant.user.user.oxi_id)
             token.payload['tenant_user_id'] = str(tenant.user.id)
             token.payload['tenant_user_is_owner'] = tenant.user.is_owner
