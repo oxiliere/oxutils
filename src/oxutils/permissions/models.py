@@ -31,6 +31,7 @@ class Group(TimestampMixin):
     """
     slug = models.SlugField(unique=True, primary_key=True)
     name = models.CharField(max_length=100)
+    app = models.CharField(max_length=25, null=True, blank=True)
     roles = models.ManyToManyField(Role, related_name="groups")
 
     def __str__(self):
@@ -39,6 +40,7 @@ class Group(TimestampMixin):
     class Meta:
         indexes = [
             models.Index(fields=["slug"]),
+            models.Index(fields=['app'])
         ]
         ordering = ["slug"]
 

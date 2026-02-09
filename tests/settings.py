@@ -82,6 +82,7 @@ OXI_RETENTION_DELAY = 7
 # Permissions settings
 ACCESS_MANAGER_SCOPE = 'access'
 ACCESS_MANAGER_GROUP = 'manager'
+ACCESS_MANAGER_ROLE = 'manager'
 ACCESS_MANAGER_CONTEXT = {}
 ACCESS_SCOPES = ['access', 'articles', 'users', 'comments']
 CACHE_CHECK_PERMISSION = False

@@ -25,15 +25,14 @@ class TenantBasePermission(BasePermission):
             return False
         
         if not hasattr(request, 'tenant'):
-            logger.warning('tenant_permission', type="tenant_not_found", user=request.user)
+            logger.warning('tenant_permission', type="tenant_not_found")
             return False
 
         if not isinstance(request.tenant, TokenTenant):
             logger.warning(
                 'tenant_permission', 
                 type="tenant_is_not_token_tenant", 
-                tenant=request.tenant, 
-                user=request.user
+                tenant=request.tenant,
             )
             return False
 
@@ -51,8 +50,7 @@ class TenantUserPermission(TenantBasePermission):
         logger.info(
             'tenant_permission', 
             type="tenant_user_access_permission", 
-            tenant=tenant, user=request.user, 
-            passed=tenant.is_tenant_user
+            tenant=tenant, passed=tenant.is_tenant_user
         )
         
         return tenant.is_tenant_user
@@ -68,8 +66,7 @@ class TenantOwnerPermission(TenantBasePermission):
         logger.info(
             'tenant_permission', 
             type="tenant_user_access_permission", 
-            tenant=tenant, user=request.user, 
-            passed=tenant.is_owner_user
+            tenant=tenant, passed=tenant.is_owner_user
         )
         
         return tenant.is_owner_user
@@ -85,8 +82,7 @@ class TenantAdminPermission(TenantBasePermission):
         logger.info(
             'tenant_permission', 
             type="tenant_user_access_permission", 
-            tenant=tenant, user=request.user, 
-            passed=tenant.is_admin_user
+            tenant=tenant, passed=tenant.is_admin_user
         )
         
         return tenant.is_admin_user

@@ -250,7 +250,11 @@ class PermissionController(ControllerBase):
         """
         Liste les grants, avec filtrage optionnel par utilisateur et/ou rôle.
         """
-        queryset = Grant.objects.all()
+        queryset = Grant.objects.select_related(
+            'user_group__group',
+            'role', 'user',
+            'created_by', 
+        ).all()
         if user_id:
             queryset = queryset.filter(user_id=user_id)
         if role:

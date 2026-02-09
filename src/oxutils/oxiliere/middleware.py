@@ -88,8 +88,13 @@ class TenantMainMiddleware(MiddlewareMixin):
         if tenant_token:
             tenant = TokenTenant.for_token(tenant_token)
             # Verify the token's oxi_id matches the request
-            if not is_system_tenant(tenant) and tenant.oxi_id != oxi_id:
+            if tenant and not is_system_tenant(tenant) and tenant.oxi_id != oxi_id:
                 logger.info("tenant_token_oxi_id_doesnt_match_request_oxi_id", tenant_oxi_id=tenant.oxi_id, request_oxi_id=oxi_id)
+                old_tenant = tenant
+                tenant = None
+
+            if tenant and tenant.user.oxi_id != request.user.id:
+                logger.info("tenant_user_token_oxi_id_doesnt_match", tenant_oxi_id=tenant.oxi_id, user_oxi_id=request.user.id)
                 old_tenant = tenant
                 tenant = None
         

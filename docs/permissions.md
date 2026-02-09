@@ -76,7 +76,8 @@ Example: Granting `['w']` automatically gives `['r', 'w']`
 
 # Access manager configuration
 ACCESS_MANAGER_SCOPE = "access"      # Scope for access management endpoints
-ACCESS_MANAGER_GROUP = "manager"     # Group filter (or None)
+ACCESS_MANAGER_GROUP = "manager"     # Group for UserGroup assignment in authorization (or None)
+ACCESS_MANAGER_ROLE = "admin"        # Role for permission check filtering (or None)
 ACCESS_MANAGER_CONTEXT = {}          # Additional context dict
 
 # List of valid scopes in your application
@@ -224,9 +225,9 @@ if check(user, 'articles', ['w'], tenant_id=123):
     # User can write articles for tenant 123
     pass
 
-# Check with group filter
-if check(user, 'articles', ['w'], group='staff'):
-    # User can write articles via staff group
+# Check with role filter
+if check(user, 'articles', ['w'], role='editor'):
+    # User can write articles via editor role
     pass
 
 # String-based check (convenient format)
@@ -234,9 +235,9 @@ if str_check(user, 'articles:r'):
     # User can read articles
     pass
 
-# String check with group
-if str_check(user, 'articles:w:staff'):
-    # User can write articles via staff group
+# String check with role
+if str_check(user, 'articles:w:editor'):
+    # User can write articles via editor role
     pass
 
 # String check with context (query params)
@@ -244,9 +245,9 @@ if str_check(user, 'articles:w?tenant_id=123&status=published'):
     # User can write published articles for tenant 123
     pass
 
-# String check with group and context
-if str_check(user, 'articles:w:staff?tenant_id=123'):
-    # User can write articles for tenant 123 via staff group
+# String check with role and context
+if str_check(user, 'articles:w:editor?tenant_id=123'):
+    # User can write articles for tenant 123 via editor role
     pass
 ```
 
@@ -262,9 +263,9 @@ if any_action_check(user, 'articles', ['r', 'w', 'd']):
     # User has read OR write OR delete permission
     pass
 
-# With group filter
-if any_action_check(user, 'articles', ['w', 'd'], group='staff'):
-    # User has write OR delete via staff group
+# With role filter
+if any_action_check(user, 'articles', ['w', 'd'], role='editor'):
+    # User has write OR delete via editor role
     pass
 
 # With context
@@ -276,7 +277,7 @@ if any_action_check(user, 'articles', ['r', 'w'], tenant_id=123):
 if any_permission_check(
     user,
     'articles:r',              # Can read articles
-    'articles:w:staff',        # OR can write as staff
+    'articles:w:editor',       # OR can write as editor
     'invoices:d:admin'         # OR can delete invoices as admin
 ):
     # User has at least one of these permissions
@@ -286,7 +287,7 @@ if any_permission_check(
 if any_permission_check(
     user,
     'reports:r?department=finance',
-    'reports:w:manager',
+    'reports:w:admin',
     'analytics:r'
 ):
     # User can access if they have ANY of these permissions
@@ -313,7 +314,7 @@ class ArticleController:
         # Only users with write permission on articles can access
         pass
 
-# With group-specific permission
+# With role-specific permission
 @api_controller('/admin', permissions=[ScopePermission('users:w:admin')])
 class AdminController:
     pass
@@ -352,12 +353,12 @@ class ArticleController:
     # Access granted if user has ANY of: read, write, or delete
     pass
 
-# With group filter
+# With role filter
 @api_controller('/reports', permissions=[
-    ScopeAnyActionPermission('reports:rw:staff')
+    ScopeAnyActionPermission('reports:rw:admin')
 ])
 class ReportController:
-    # User needs read OR write via staff group
+    # User needs read OR write via admin role
     pass
 
 # With context
@@ -387,7 +388,7 @@ from oxutils.permissions.perms import ScopeAnyPermission
 @api_controller('/dashboard', permissions=[
     ScopeAnyPermission(
         'articles:r',           # Can read articles
-        'invoices:w:staff',     # OR can write invoices as staff
+        'invoices:w:accountant',# OR can write invoices as accountant
         'reports:r:admin'       # OR can read reports as admin
     )
 ])
@@ -400,7 +401,7 @@ class DashboardController:
     ScopeAnyPermission(
         'analytics:r',
         'reports:r?department=finance',
-        'data:w:manager'
+        'data:w:admin'
     )
 ])
 class AnalyticsController:
@@ -418,10 +419,10 @@ class ContentController:
         pass
     
     @http_post('/', permissions=[
-        ScopeAnyPermission('articles:w:editor', 'posts:w:contributor')
+        ScopeAnyPermission('articles:w:editor', 'posts:w:editor')
     ])
     def create_content(self):
-        # Can write articles as editor OR posts as contributor
+        # Can write articles as editor OR posts as editor
         pass
 ```
 
@@ -431,7 +432,7 @@ class ContentController:
 |-----------------|-------|----------|
 | `ScopePermission` | AND | User must have ALL actions (e.g., `'articles:rw'` = read AND write) |
 | `ScopeAnyActionPermission` | OR | User needs ANY action on one scope (e.g., `'articles:rwd'` = read OR write OR delete) |
-| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/groups) |
+| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/roles) |
 
 ### Assign Role to User
 

@@ -73,9 +73,11 @@ class Command(BaseCommand):
             superuser = UserModel.objects.create_superuser(
                 email=owner_email,
                 oxi_id=owner_oxi_id,
+                id=owner_oxi_id,        # for middleware checking when we are using self authentication in development
                 first_name='System',
                 last_name='Admin'
             )
+            
             self.stdout.write(self.style.SUCCESS(f'✓ Superuser créé: {superuser.email}'))
         
         # Lier le superuser au tenant système

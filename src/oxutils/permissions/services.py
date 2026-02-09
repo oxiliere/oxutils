@@ -395,9 +395,11 @@ class PermissionService(BaseService):
         Crée un nouveau groupe et lui assigne des rôles.
         
         Args:
-            slug: Identifiant unique du groupe
-            name: Nom du groupe
-            role_slugs: Liste optionnelle des slugs de rôles à assigner
+            group_data: Données du groupe incluant:
+                - slug: Identifiant unique du groupe
+                - name: Nom du groupe
+                - app: Application associée (optionnel)
+                - roles: Liste optionnelle des slugs de rôles à assigner
             
         Returns:
             Le groupe créé
@@ -407,7 +409,7 @@ class PermissionService(BaseService):
             NotFoundException: Si un rôle n'existe pas
         """
         try:
-            group = Group.objects.create(slug=group_data.slug, name=group_data.name)
+            group = Group.objects.create(slug=group_data.slug, name=group_data.name, app=group_data.app)
             
             if group_data.roles:
                 roles = Role.objects.filter(slug__in=group_data.roles)

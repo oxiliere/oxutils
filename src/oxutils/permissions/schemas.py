@@ -1,5 +1,6 @@
 from typing import Any, Optional
 from datetime import datetime
+from uuid import UUID
 from ninja import Schema
 from pydantic import field_validator
 
@@ -76,6 +77,7 @@ class GroupCreateSchema(Schema):
     """
     slug: str
     name: str
+    app: Optional[str] = None
     roles: list[str] = []
 
 
@@ -138,8 +140,9 @@ class GrantSchema(Schema):
     Schéma pour un grant utilisateur.
     """
     id: int
-    user_id: int
+    user_id: UUID
     role: Optional[RoleSchema] = None
+    group: Optional[str] = None
     scope: str
     actions: list[str]
     context: dict[str, Any] = {}
@@ -149,12 +152,16 @@ class GrantSchema(Schema):
     class Config:
         from_attributes = True
 
+    @staticmethod
+    def resolve_group(obj):
+        return obj.user_group.group.slug if obj.user_group else None
+
 
 class GrantCreateSchema(Schema):
     """
     Schéma pour la création d'un grant utilisateur.
     """
-    user_id: int
+    user_id: UUID
     scope: str
     actions: list[str]
     context: dict[str, Any] = {}
@@ -188,7 +195,7 @@ class PermissionCheckSchema(Schema):
     """
     Schéma pour une requête de vérification de permissions.
     """
-    user_id: int
+    user_id: UUID
     scope: str
     required_actions: list[str]
     context: dict[str, Any] = {}
@@ -205,7 +212,7 @@ class PermissionCheckResponseSchema(Schema):
     Schéma pour la réponse d'une vérification de permissions.
     """
     allowed: bool
-    user_id: int
+    user_id: UUID
     scope: str
     required_actions: list[str]
 
@@ -214,16 +221,16 @@ class AssignRoleSchema(Schema):
     """
     Schéma pour assigner un rôle à un utilisateur.
     """
-    user_id: int
+    user_id: UUID
     role: str
-    by_user_id: Optional[int] = None
+    by_user_id: Optional[UUID] = None
 
 
 class RevokeRoleSchema(Schema):
     """
     Schéma pour révoquer un rôle d'un utilisateur.
     """
-    user_id: int
+    user_id: UUID
     role: str
 
 
@@ -231,7 +238,7 @@ class AssignGroupSchema(Schema):
     """
     Schéma pour assigner un groupe à un utilisateur.
     """
-    user_id: int
+    user_id: UUID
     group: str
 
 
@@ -239,7 +246,7 @@ class RevokeGroupSchema(Schema):
     """
     Schéma pour révoquer un groupe d'un utilisateur.
     """
-    user_id: int
+    user_id: UUID
     group: str
 
 
@@ -247,7 +254,7 @@ class OverrideGrantSchema(Schema):
     """
     Schéma pour modifier un grant en retirant des actions.
     """
-    user_id: int
+    user_id: UUID
     scope: str
     remove_actions: list[str]
     

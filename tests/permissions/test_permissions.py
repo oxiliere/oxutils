@@ -254,12 +254,12 @@ class TestPermissionCheck:
         assert check(test_user, 'articles', ['r'], tenant_id=123) is True
         assert check(test_user, 'articles', ['r'], tenant_id=456) is False
 
-    def test_check_with_group_filter(self, test_user, staff_group, editor_role_grant, admin_user):
-        """Test checking permissions with group filter."""
-        assign_group(test_user, 'staff', by=admin_user)
+    def test_check_with_role_filter(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test checking permissions with role filter."""
+        assign_role(test_user, 'editor', by=admin_user)
         
-        assert check(test_user, 'articles', ['r'], group='staff') is True
-        assert check(test_user, 'articles', ['r'], group='other') is False
+        assert check(test_user, 'articles', ['r'], role='editor') is True
+        assert check(test_user, 'articles', ['r'], role='nonexistent') is False
 
 
 class TestStringCheck:
@@ -273,11 +273,12 @@ class TestStringCheck:
         assert str_check(test_user, 'articles:w') is True
         assert str_check(test_user, 'articles:d') is False
 
-    def test_str_check_with_group(self, test_user, staff_group, editor_role_grant, admin_user):
-        """Test string check with group."""
-        assign_group(test_user, 'staff', by=admin_user)
+    def test_str_check_with_role(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test string check with role."""
+        assign_role(test_user, 'editor', by=admin_user)
         
-        assert str_check(test_user, 'articles:r:staff') is True
+        assert str_check(test_user, 'articles:r:editor') is True
+        assert str_check(test_user, 'articles:r:nonexistent') is False
 
     def test_str_check_with_context(self, test_user, editor_role, admin_user):
         """Test string check with context query params."""
@@ -421,22 +422,24 @@ class TestAccessManager:
     @override_settings(
         ACCESS_MANAGER_SCOPE='access',
         ACCESS_MANAGER_GROUP='manager',
+        ACCESS_MANAGER_ROLE='admin',
         ACCESS_MANAGER_CONTEXT={}
     )
     def test_access_manager_basic(self):
-        """Test access_manager creates correct permission."""
+        """Test access_manager creates correct permission using ROLE, not GROUP."""
         perm = access_manager('rw')
         
         assert isinstance(perm, ScopePermission)
-        assert perm.perm == 'access:rw:manager'
+        assert perm.perm == 'access:rw:admin'
 
     @override_settings(
         ACCESS_MANAGER_SCOPE='access',
-        ACCESS_MANAGER_GROUP=None,
+        ACCESS_MANAGER_GROUP='manager',
+        ACCESS_MANAGER_ROLE=None,
         ACCESS_MANAGER_CONTEXT={}
     )
-    def test_access_manager_without_group(self):
-        """Test access_manager without group."""
+    def test_access_manager_without_role(self):
+        """Test access_manager without role produces scope:actions only."""
         perm = access_manager('r')
         
         assert perm.perm == 'access:r'
@@ -444,13 +447,14 @@ class TestAccessManager:
     @override_settings(
         ACCESS_MANAGER_SCOPE='access',
         ACCESS_MANAGER_GROUP='manager',
+        ACCESS_MANAGER_ROLE='admin',
         ACCESS_MANAGER_CONTEXT={'tenant_id': 123}
     )
     def test_access_manager_with_context(self):
         """Test access_manager with context."""
         perm = access_manager('rw')
         
-        assert perm.perm == 'access:rw:manager'
+        assert perm.perm == 'access:rw:admin'
         assert perm.ctx == {'tenant_id': 123}
 
     def test_access_manager_missing_scope(self):
@@ -606,38 +610,38 @@ class TestParsePermission:
 
     def test_parse_simple_permission(self):
         """Test parsing simple permission string."""
-        scope, actions, group, context = parse_permission('articles:rw')
+        scope, actions, role, context = parse_permission('articles:rw')
         
         assert scope == 'articles'
         assert actions == ['r', 'w']
-        assert group is None
+        assert role is None
         assert context == {}
 
-    def test_parse_permission_with_group(self):
-        """Test parsing permission with group."""
-        scope, actions, group, context = parse_permission('articles:w:staff')
+    def test_parse_permission_with_role(self):
+        """Test parsing permission with role."""
+        scope, actions, role, context = parse_permission('articles:w:admin')
         
         assert scope == 'articles'
         assert actions == ['w']
-        assert group == 'staff'
+        assert role == 'admin'
         assert context == {}
 
     def test_parse_permission_with_context(self):
         """Test parsing permission with query string context."""
-        scope, actions, group, context = parse_permission('articles:rw?tenant_id=123&status=published')
+        scope, actions, role, context = parse_permission('articles:rw?tenant_id=123&status=published')
         
         assert scope == 'articles'
         assert actions == ['r', 'w']
-        assert group is None
+        assert role is None
         assert context == {'tenant_id': 123, 'status': 'published'}
 
-    def test_parse_permission_with_group_and_context(self):
-        """Test parsing permission with both group and context."""
-        scope, actions, group, context = parse_permission('articles:w:staff?tenant_id=123')
+    def test_parse_permission_with_role_and_context(self):
+        """Test parsing permission with both role and context."""
+        scope, actions, role, context = parse_permission('articles:w:editor?tenant_id=123')
         
         assert scope == 'articles'
         assert actions == ['w']
-        assert group == 'staff'
+        assert role == 'editor'
         assert context == {'tenant_id': 123}
 
     def test_parse_permission_invalid_format(self):
@@ -686,11 +690,8 @@ class TestAnyActionCheck:
         # User doesn't have 'd' or 'x', should be False
         assert any_action_check(test_user, 'articles', ['d', 'x']) is False
 
-    def test_any_action_check_with_group(self, test_user, editor_role, admin_user):
-        """Test any_action_check with group filter."""
-        staff_group = Group.objects.create(slug='staff', name='Staff')
-        staff_group.roles.add(editor_role)
-        
+    def test_any_action_check_with_role(self, test_user, editor_role, admin_user):
+        """Test any_action_check with role filter."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
@@ -698,11 +699,12 @@ class TestAnyActionCheck:
             group=None
         )
         
-        assign_group(test_user, 'staff', by=admin_user)
+        assign_role(test_user, 'editor', by=admin_user)
         
-        # Check with group filter
-        assert any_action_check(test_user, 'articles', ['r', 'w'], group='staff') is True
-        assert any_action_check(test_user, 'articles', ['d'], group='staff') is False
+        # Check with role filter
+        assert any_action_check(test_user, 'articles', ['r', 'w'], role='editor') is True
+        assert any_action_check(test_user, 'articles', ['d'], role='editor') is False
+        assert any_action_check(test_user, 'articles', ['r'], role='nonexistent') is False
 
     def test_any_action_check_with_context(self, test_user):
         """Test any_action_check with context."""
@@ -766,11 +768,8 @@ class TestAnyPermissionCheck:
         # User has none of these
         assert any_permission_check(test_user, 'users:r', 'reports:w') is False
 
-    def test_any_permission_check_with_groups(self, test_user, editor_role, admin_user):
-        """Test any_permission_check with group filters."""
-        staff_group = Group.objects.create(slug='staff', name='Staff')
-        staff_group.roles.add(editor_role)
-        
+    def test_any_permission_check_with_roles(self, test_user, editor_role, admin_user):
+        """Test any_permission_check with role filters."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
@@ -778,14 +777,21 @@ class TestAnyPermissionCheck:
             group=None
         )
         
-        assign_group(test_user, 'staff', by=admin_user)
+        assign_role(test_user, 'editor', by=admin_user)
         
-        # Check with group in permission string
+        # Check with role in permission string
         assert any_permission_check(
             test_user,
-            'articles:r:staff',
+            'articles:r:editor',
             'invoices:w:admin'
         ) is True
+        
+        # No match with wrong role
+        assert any_permission_check(
+            test_user,
+            'articles:r:nonexistent',
+            'invoices:w:admin'
+        ) is False
 
     def test_any_permission_check_with_context(self, test_user):
         """Test any_permission_check with context in permission strings."""
@@ -847,11 +853,8 @@ class TestScopeAnyActionPermission:
         permission = ScopeAnyActionPermission('articles:wd')
         assert permission.has_permission(request, None) is False
 
-    def test_scope_any_action_permission_with_group(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyActionPermission with group."""
-        staff_group = Group.objects.create(slug='staff', name='Staff')
-        staff_group.roles.add(editor_role)
-        
+    def test_scope_any_action_permission_with_role(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyActionPermission with role."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
@@ -859,13 +862,16 @@ class TestScopeAnyActionPermission:
             group=None
         )
         
-        assign_group(test_user, 'staff', by=admin_user)
+        assign_role(test_user, 'editor', by=admin_user)
         
         request = Mock()
         request.user = test_user
         
-        permission = ScopeAnyActionPermission('articles:rwd:staff')
+        permission = ScopeAnyActionPermission('articles:rwd:editor')
         assert permission.has_permission(request, None) is True
+        
+        permission = ScopeAnyActionPermission('articles:rwd:nonexistent')
+        assert permission.has_permission(request, None) is False
 
     def test_scope_any_action_permission_with_context(self, test_user):
         """Test ScopeAnyActionPermission with context."""
@@ -940,11 +946,8 @@ class TestScopeAnyPermission:
         permission = ScopeAnyPermission('articles:w', 'users:d', 'reports:r')
         assert permission.has_permission(request, None) is True
 
-    def test_scope_any_permission_with_groups(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyPermission with group filters."""
-        staff_group = Group.objects.create(slug='staff', name='Staff')
-        staff_group.roles.add(editor_role)
-        
+    def test_scope_any_permission_with_roles(self, test_user, editor_role, admin_user):
+        """Test ScopeAnyPermission with role filters."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
@@ -952,13 +955,16 @@ class TestScopeAnyPermission:
             group=None
         )
         
-        assign_group(test_user, 'staff', by=admin_user)
+        assign_role(test_user, 'editor', by=admin_user)
         
         request = Mock()
         request.user = test_user
         
-        permission = ScopeAnyPermission('articles:r:staff', 'invoices:w:admin')
+        permission = ScopeAnyPermission('articles:r:editor', 'invoices:w:admin')
         assert permission.has_permission(request, None) is True
+        
+        permission = ScopeAnyPermission('articles:r:nonexistent', 'invoices:w:admin')
+        assert permission.has_permission(request, None) is False
 
     def test_scope_any_permission_with_context(self, test_user):
         """Test ScopeAnyPermission with context."""

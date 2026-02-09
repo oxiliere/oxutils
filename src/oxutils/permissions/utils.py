@@ -336,7 +336,7 @@ def check(
     user: AbstractBaseUser,
     scope: str,
     required: list[str],
-    group: Optional[str] = None,
+    role: Optional[str] = None,
     **context: Any
 ) -> bool:
     """
@@ -348,22 +348,23 @@ def check(
         user: L'utilisateur dont on vérifie les permissions
         scope: Le scope à vérifier (ex: 'articles', 'users', 'comments')
         required: Liste des actions requises (ex: ['r'], ['w', 'r'], ['d'])
-        group: Slug du groupe optionnel pour filtrer les grants par groupe
+        role: Slug du rôle optionnel pour filtrer les grants par rôle.
+              Si None, vérifie globalement tous les grants du scope.
         **context: Contexte additionnel pour filtrer les grants (clés JSON)
         
     Returns:
         True si l'utilisateur possède toutes les actions requises, False sinon
         
     Example:
-        >>> # Vérifier si l'utilisateur peut lire les articles
+        >>> # Vérification globale : l'utilisateur peut-il lire les articles ?
         >>> check(user, 'articles', ['r'])
+        True
+        >>> # Vérification par rôle : a-t-il ce droit via le rôle 'admin' ?
+        >>> check(user, 'articles', ['w'], role='admin')
         True
         >>> # Vérifier avec contexte
         >>> check(user, 'articles', ['w'], tenant_id=123)
         False
-        >>> # Vérifier dans le contexte d'un groupe spécifique
-        >>> check(user, 'articles', ['w'], group='staff')
-        True
         
     Note:
         Les actions sont automatiquement expandées lors de la création du grant,
@@ -376,9 +377,9 @@ def check(
         actions__contains=list(required),
     )
     
-    # Filtrer par groupe si spécifié
-    if group:
-        grant_filter &= Q(user_group__group__slug=group)
+    # Filtrer par rôle si spécifié
+    if role:
+        grant_filter &= Q(role__slug=role)
     
     # Ajouter les filtres de contexte si fournis
     if context:
@@ -392,7 +393,7 @@ def any_action_check(
     user: AbstractBaseUser,
     scope: str,
     required: list[str],
-    group: Optional[str] = None,
+    role: Optional[str] = None,
     **context: Any
 ) -> bool:
     """
@@ -405,22 +406,23 @@ def any_action_check(
         user: L'utilisateur dont on vérifie les permissions
         scope: Le scope à vérifier (ex: 'articles', 'invoices')
         required: Liste des actions dont au moins une est requise (ex: ['r', 'w'], ['d'])
-        group: Slug du groupe optionnel pour filtrer les grants par groupe
+        role: Slug du rôle optionnel pour filtrer les grants par rôle.
+              Si None, vérifie globalement tous les grants du scope.
         **context: Contexte additionnel pour filtrer les grants (clés JSON)
         
     Returns:
         True si l'utilisateur possède au moins une des actions requises, False sinon
         
     Example:
-        >>> # Vérifier si l'utilisateur peut lire OU écrire les articles
+        >>> # Vérification globale
         >>> any_action_check(user, 'articles', ['r', 'w'])
+        True
+        >>> # Vérification par rôle
+        >>> any_action_check(user, 'articles', ['r', 'w'], role='editor')
         True
         >>> # Vérifier avec contexte
         >>> any_action_check(user, 'articles', ['w', 'd'], tenant_id=123)
         False
-        >>> # Vérifier dans le contexte d'un groupe spécifique
-        >>> any_action_check(user, 'articles', ['r', 'w'], group='staff')
-        True
         
     Note:
         Les actions sont automatiquement expandées lors de la création du grant,
@@ -430,9 +432,9 @@ def any_action_check(
     # Construire le filtre de base pour l'utilisateur et le scope
     grant_filter = Q(user__pk=user.pk, scope=scope)
     
-    # Filtrer par groupe si spécifié
-    if group:
-        grant_filter &= Q(user_group__group__slug=group)
+    # Filtrer par rôle si spécifié
+    if role:
+        grant_filter &= Q(role__slug=role)
     
     # Ajouter les filtres de contexte si fournis
     if context:
@@ -457,20 +459,20 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
     Args:
         user: L'utilisateur dont on vérifie les permissions
         *str_perms: Liste de chaînes de permissions au format standard
-                    (ex: 'articles:r', 'invoices:w:staff', 'users:d?tenant_id=123')
+                    (ex: 'articles:r', 'invoices:w:admin', 'users:d?tenant_id=123')
         
     Returns:
         True si l'utilisateur possède au moins une des permissions, False sinon
         
     Example:
-        >>> # Vérifier si l'utilisateur peut lire les articles OU écrire les factures
+        >>> # Vérification globale
         >>> any_permission_check(user, 'articles:r', 'invoices:w')
         True
-        >>> # Avec différents groupes et contextes
+        >>> # Avec différents rôles et contextes
         >>> any_permission_check(
         ...     user,
-        ...     'articles:w:staff',
-        ...     'invoices:r:admin',
+        ...     'articles:w:editor',
+        ...     'invoices:r:accountant',
         ...     'users:d?tenant_id=123'
         ... )
         False
@@ -490,14 +492,14 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
     
     for perm in str_perms:
         # Parser la permission
-        scope, actions, group, context = parse_permission(perm)
+        scope, actions, role, context = parse_permission(perm)
         
         # Construire le filtre pour cette permission spécifique
         perm_filter = Q(scope=scope, actions__overlap=actions)
         
-        # Ajouter le filtre de groupe si spécifié
-        if group:
-            perm_filter &= Q(user_group__group__slug=group)
+        # Filtrer par rôle si spécifié
+        if role:
+            perm_filter &= Q(role__slug=role)
         
         # Ajouter le filtre de contexte si fourni
         if context:
@@ -514,15 +516,21 @@ def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str
     """
     Parse une chaîne de permission et retourne ses composants.
     
+    Formats supportés:
+        - "<scope>:<actions>" : vérification globale sur le scope
+        - "<scope>:<actions>:<role>" : vérification liée à un rôle spécifique
+        - "<scope>:<actions>?key=value" : vérification globale avec contexte
+        - "<scope>:<actions>:<role>?key=value" : vérification par rôle avec contexte
+    
     Args:
-        perm: Chaîne de permission au format "<scope>:<actions>:<group>?key=value&key2=value2"
+        perm: Chaîne de permission au format "<scope>:<actions>:<role>?key=value&key2=value2"
               - scope: Le scope (ex: 'articles')
               - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
-              - group: (Optionnel) Slug du groupe
+              - role: (Optionnel) Slug du rôle pour filtrer
               - query params: (Optionnel) Contexte sous forme de query parameters
               
     Returns:
-        Tuple contenant (scope, actions_list, group, context_dict)
+        Tuple contenant (scope, actions_list, role, context_dict)
         
     Raises:
         ValueError: Si le format de la permission est invalide
@@ -530,12 +538,12 @@ def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str
     Example:
         >>> parse_permission('articles:rw')
         ('articles', ['r', 'w'], None, {})
-        >>> parse_permission('articles:w:staff')
-        ('articles', ['w'], 'staff', {})
+        >>> parse_permission('articles:w:admin')
+        ('articles', ['w'], 'admin', {})
         >>> parse_permission('articles:rw?tenant_id=123&status=published')
         ('articles', ['r', 'w'], None, {'tenant_id': 123, 'status': 'published'})
-        >>> parse_permission('articles:w:staff?tenant_id=123')
-        ('articles', ['w'], 'staff', {'tenant_id': 123})
+        >>> parse_permission('articles:w:editor?tenant_id=123')
+        ('articles', ['w'], 'editor', {'tenant_id': 123})
     """
     # Séparer la partie principale des query params
     if '?' in perm:
@@ -560,19 +568,19 @@ def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str
     if len(parts) < 2:
         raise ValueError(
             f"Format de permission invalide: '{perm}'. "
-            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<group>' "
-            "ou '<scope>:<actions>:<group>?key=value&key2=value2'"
+            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<role>' "
+            "ou '<scope>:<actions>:<role>?key=value&key2=value2'"
         )
     
     scope = parts[0]
     actions_str = parts[1]
-    group = parts[2] if len(parts) > 2 else None
+    role = parts[2] if len(parts) > 2 else None
     
     # Convertir la chaîne d'actions en liste
     # 'rwd' -> ['r', 'w', 'd']
     actions_list = list(actions_str)
     
-    return scope, actions_list, group, query_context
+    return scope, actions_list, role, query_context
 
 
 def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
@@ -581,10 +589,10 @@ def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
     
     Args:
         user: L'utilisateur dont on vérifie les permissions
-        perm: Chaîne de permission au format "<scope>:<actions>:<group>?key=value&key2=value2"
+        perm: Chaîne de permission au format "<scope>:<actions>:<role>?key=value&key2=value2"
               - scope: Le scope à vérifier (ex: 'articles')
               - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
-              - group: (Optionnel) Slug du groupe
+              - role: (Optionnel) Slug du rôle pour filtrer
               - query params: (Optionnel) Contexte sous forme de query parameters
         **context: Contexte additionnel pour filtrer les grants (fusionné avec les query params)
         
@@ -592,17 +600,17 @@ def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
         True si l'utilisateur possède les permissions requises, False sinon
         
     Example:
-        >>> # Vérifier lecture sur articles
+        >>> # Vérification globale
         >>> str_check(user, 'articles:r')
         True
-        >>> # Vérifier écriture sur articles dans le groupe staff
-        >>> str_check(user, 'articles:w:staff')
+        >>> # Vérification par rôle
+        >>> str_check(user, 'articles:w:admin')
         True
         >>> # Avec contexte via query params
         >>> str_check(user, 'articles:w?tenant_id=123&status=published')
         False
-        >>> # Avec groupe et contexte
-        >>> str_check(user, 'articles:w:staff?tenant_id=123')
+        >>> # Avec rôle et contexte
+        >>> str_check(user, 'articles:w:editor?tenant_id=123')
         True
         >>> # Contexte mixte (query params + kwargs)
         >>> str_check(user, 'articles:w?tenant_id=123', level=2)
@@ -611,12 +619,12 @@ def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
     from .caches import cache_check
 
     # Parser la chaîne de permission
-    scope, required, group, query_context = parse_permission(perm)
+    scope, required, role, query_context = parse_permission(perm)
     
     # Fusionner les contextes (kwargs ont priorité sur query params)
     final_context = {**query_context, **context}
     
-    return cache_check(user, scope, required, group=group, **final_context)
+    return cache_check(user, scope, required, role=role, **final_context)
 
 def load_preset(*, force: bool = False) -> dict[str, int]:
     """
@@ -648,6 +656,7 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
             {
                 "name": "Admins",
                 "slug": "admins",
+                "app": "my_app",
                 "roles": ["admin"]
             },
             {
@@ -729,9 +738,13 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
     # Créer les groupes et peupler le cache
     groups_data = preset.get('group', [])
     for group_data in groups_data:
+        defaults = {'name': group_data['name']}
+        # App field is optional
+        if 'app' in group_data:
+            defaults['app'] = group_data['app']
         group, created = Group.objects.get_or_create(
             slug=group_data['slug'],
-            defaults={'name': group_data['name']}
+            defaults=defaults
         )
         groups_cache[group.slug] = group
         if created:

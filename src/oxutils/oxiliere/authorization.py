@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import transaction
 from oxutils.permissions.actions import ACTIONS
-from oxutils.permissions.models import Grant, Group, UserGroup
+from oxutils.permissions.models import Grant, Group, UserGroup, Role
 from oxutils.oxiliere.utils import get_tenant_user_model
 from oxutils.oxiliere.models import BaseTenant
 
@@ -12,13 +12,22 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
     tenant_users = tenant_user_model.objects.select_related("user").filter(tenant=tenant, is_owner=True)
 
     access_scope = getattr(settings, 'ACCESS_MANAGER_SCOPE')
-    access_group = getattr(settings, 'ACCESS_MANAGER_GROUP')
+    access_group = getattr(settings, 'ACCESS_MANAGER_GROUP', None)
+    access_role = getattr(settings, 'ACCESS_MANAGER_ROLE', None)
 
+    group = None
     if access_group:
         try:
             group = Group.objects.get(slug=access_group)
         except Group.DoesNotExist:
             group = None
+
+    role = None
+    if access_role:
+        try:
+            role = Role.objects.get(slug=access_role)
+        except Role.DoesNotExist:
+            role = None
 
     bulk_grant = []
     for tenant_user in tenant_users:
@@ -34,7 +43,7 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
             Grant(
                 user=tenant_user.user,
                 scope=access_scope,
-                role=None,
+                role=role,
                 actions=ACTIONS,
                 context={},
                 user_group=user_group,
