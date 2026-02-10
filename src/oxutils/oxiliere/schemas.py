@@ -58,6 +58,7 @@ class TenantUserListSchema(Schema):
     is_owner: bool
     is_admin: bool
     status: str
+    is_active: bool
 
 
 class TenantUserDetailSchema(Schema):

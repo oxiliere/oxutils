@@ -13,6 +13,7 @@ class Role(TimestampMixin):
     A role.
     """
     slug = models.SlugField(unique=True, primary_key=True)
+    app = models.CharField(max_length=25, null=True, blank=True)
     name = models.CharField(max_length=100)
 
     def __str__(self):

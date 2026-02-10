@@ -727,9 +727,14 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
     # Créer les rôles et peupler le cache
     roles_data = preset.get('roles', [])
     for role_data in roles_data:
+        defaults = {'name': role_data['name']}
+        # App field is optional
+        if 'app' in role_data:
+            defaults['app'] = role_data['app']
+            
         role, created = Role.objects.get_or_create(
             slug=role_data['slug'],
-            defaults={'name': role_data['name']}
+            defaults=defaults
         )
         roles_cache[role.slug] = role
         if created:

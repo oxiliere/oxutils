@@ -1,6 +1,9 @@
 from typing import Optional, Any
-from django.contrib.auth.models import AbstractBaseUser
+from uuid import UUID
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q, Count
+from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth import get_user_model
 
 import structlog
@@ -11,7 +14,7 @@ from .models import Grant, RoleGrant, Group, Role
 from .utils import (
     assign_role, revoke_role,
     assign_group, revoke_group,
-    override_grant, check, group_sync
+    override_grant
 )
 from .exceptions import (
     RoleNotFoundException,
@@ -76,17 +79,16 @@ class PermissionService(BaseService):
         # Pour toutes les autres exceptions, laisser le handler parent gérer
         raise exc
 
-    def get_roles(self):
+    def get_roles(self, app: Optional[str] = None):
+        self.check_perm_application(app)
+
+        if app:
+            return Role.objects.filter(
+                Q(app=app) |
+                Q(app__isnull=True)
+            )
+        
         return Role.objects.all()
-
-    def get_role(self, role_slug: str):
-        try:
-            return Role.objects.get(slug=role_slug)
-        except Role.DoesNotExist:
-            raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas")
-
-    def get_user_roles(self, user: AbstractBaseUser):
-        return Role.objects.filter(grants__user__pk=user.pk)
 
     def assign_role_to_user(
         self,
@@ -216,30 +218,6 @@ class PermissionService(BaseService):
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
-    def sync_group(self, group_slug: str) -> dict[str, int]:
-        """
-        Synchronise les grants de tous les utilisateurs d'un groupe.
-        À appeler après modification des RoleGrants ou des rôles du groupe.
-        
-        Args:
-            group_slug: Le slug du groupe à synchroniser
-            
-        Returns:
-            Dictionnaire avec les statistiques de synchronisation
-            
-        Raises:
-            GroupNotFoundException: Si le groupe n'existe pas
-        """
-        try:
-            stats = group_sync(group_slug)
-            
-            logger.info("group_synced", group=group_slug, **stats)
-            
-            return stats
-            
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
-
     def override_user_grant(
         self,
         user: AbstractBaseUser,
@@ -284,108 +262,74 @@ class PermissionService(BaseService):
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
-    def check_permission(
-        self,
-        user_id: int,
-        scope: str,
-        required_actions: list[str],
-        context: dict[str, Any] = None
-    ) -> dict[str, Any]:
-        """
-        Vérifie si un utilisateur possède les permissions requises.
-        
-        Args:
-            user_id: L'ID de l'utilisateur dont on vérifie les permissions
-            scope: Le scope à vérifier
-            required_actions: Liste des actions requises
-            context: Contexte additionnel pour filtrer les grants
-            
-        Returns:
-            Dictionnaire avec le résultat de la vérification
-        """
-        try:
-            user = User.objects.get(pk=user_id)
-            allowed = check(user, scope, required_actions, **(context or {}))
-            
-            return {
-                "allowed": allowed,
-                "user_id": user_id,
-                "scope": scope,
-                "required_actions": required_actions
-            }
-            
-        except User.DoesNotExist:
-            raise NotFoundException(detail=f"L'utilisateur avec l'ID {user_id} n'existe pas")
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
+    def check_perm_application(self, app: str | None) -> None:
+        allowed_apps = getattr(settings, "ACCESS_APPLICATIONS", None)
 
+        if app:
+            if allowed_apps is None:
+                logger.error("ACCESS_APPLICATIONS is missing in Django settings.", app=app)
+                raise ValueError(_("Application is not allowed"))
+
+            if app not in allowed_apps:
+                    logger.error("Application is not allowed.", app=app)
+                    raise ValueError(_("Application is not allowed"))
+    
     def get_user_grants(
         self,
-        user: AbstractBaseUser,
-        scope: Optional[str] = None
+        user_id: UUID,
+        scope: Optional[str] = None,
+        app: Optional[str] = None,
     ) -> list[Grant]:
         """
         Récupère tous les grants d'un utilisateur.
         
         Args:
-            user: L'utilisateur dont on récupère les grants
+            user_id: L'ID de l'utilisateur dont on récupère les grants
             scope: Optionnel, filtre par scope
             
         Returns:
             Liste des grants de l'utilisateur
         """
         try:
-            queryset = Grant.objects.filter(user=user).select_related('role')
+            self.check_perm_application(app)    
+            
+            queryset = Grant.objects.filter(user__pk=user_id).select_related(
+                'role',
+                'group',
+                'created_by',
+            )
             
             if scope:
                 queryset = queryset.filter(scope=scope)
+
+            if app:
+                queryset = queryset.filter(
+                    Q(role__app=app) |
+                    Q(group__app=app) |
+                    Q(role__app__isnull=True) |
+                    Q(group__app__isnull=True)
+                )
             
             return list(queryset)
             
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
-    def get_user_roles(self, user: AbstractBaseUser) -> list[str]:
-        """
-        Récupère tous les rôles uniques assignés à un utilisateur.
-        
-        Args:
-            user: L'utilisateur dont on récupère les rôles
-            
-        Returns:
-            Liste des slugs de rôles
-        """
-        try:
-            role_slugs = Grant.objects.filter(
-                user=user,
-                role__isnull=False
-            ).values_list('role__slug', flat=True).distinct()
-            
-            return list(role_slugs)
-            
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
+    def get_groups(self, app: Optional[str] | None = None):
+        self.check_perm_application(app)
 
-    def create_role(self, slug: str, name: str) -> Role:
-        """
-        Crée un nouveau rôle.
+        qs = Group.objects.prefetch_related('user_groups', 'roles').annotate(
+            member_count=Count('user_groups', distinct=True),
+            role_count=Count('roles', distinct=True),
+        ).all()
         
-        Args:
-            slug: Identifiant unique du rôle
-            name: Nom du rôle
-            
-        Returns:
-            Le rôle créé
-            
-        Raises:
-            DuplicateEntryException: Si le rôle existe déjà
-        """
-        try:
-            role = Role.objects.create(slug=slug, name=name)
-            return role
-            
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
+        if app:
+            qs = qs.filter(
+                Q(app=app) |
+                Q(app__isnull=True)
+            )
+        
+        return list(qs)
 
     def create_group(
         self,
@@ -429,6 +373,19 @@ class PermissionService(BaseService):
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
+    def get_role_grants(self, app: Optional[str] = None):
+        self.check_perm_application(app)
+
+        queryset = RoleGrant.objects.select_related('role', 'group').all()
+        if app:
+            queryset = queryset.filter(
+                Q(role__app=app) |
+                Q(group__app=app) |
+                Q(role__app__isnull=True) |
+                Q(group__app__isnull=True)
+            )
+        return list(queryset)
+
     @transaction.atomic
     def create_role_grant(
         self,
@@ -466,71 +423,6 @@ class PermissionService(BaseService):
             
         except Role.DoesNotExist:
             raise RoleNotFoundException(detail=f"Le rôle '{grant_data.role}' n'existe pas")
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
-
-    def get_role_grants(self, role_slug: str) -> list[RoleGrant]:
-        """
-        Récupère tous les grants d'un rôle.
-        
-        Args:
-            role_slug: Slug du rôle
-            
-        Returns:
-            Liste des role grants
-            
-        Raises:
-            NotFoundException: Si le rôle n'existe pas
-        """
-        try:
-            role = Role.objects.get(slug=role_slug)
-            return list(RoleGrant.objects.filter(role=role))
-            
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
-
-    @transaction.atomic
-    def create_grant(
-        self,
-        grant_data
-    ) -> Grant:
-        """
-        Crée un grant personnalisé pour un utilisateur.
-        
-        Args:
-            grant_data: Schéma contenant les données du grant
-            
-        Returns:
-            Le grant créé
-            
-        Raises:
-            NotFoundException: Si l'utilisateur ou le rôle n'existe pas
-        """
-        try:
-            user = User.objects.get(pk=grant_data.user_id)
-            
-            role_obj = None
-            if grant_data.role:
-                try:
-                    role_obj = Role.objects.get(slug=grant_data.role)
-                except Role.DoesNotExist:
-                    raise RoleNotFoundException(detail=f"Le rôle '{grant_data.role}' n'existe pas")
-            
-            grant = Grant.objects.create(
-                user=user,
-                role=role_obj,
-                scope=grant_data.scope,
-                actions=grant_data.actions,
-                context=grant_data.context,
-                user_group=None
-            )
-            
-            logger.info("grant_created", user_id=grant_data.user_id, scope=grant_data.scope, actions=grant_data.actions)
-            
-            return grant
-            
-        except User.DoesNotExist:
-            raise NotFoundException(detail=f"L'utilisateur avec l'ID {grant_data.user_id} n'existe pas")
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
@@ -572,30 +464,6 @@ class PermissionService(BaseService):
             logger.info("grant_updated", grant_id=grant_id)
             
             return grant
-            
-        except Grant.DoesNotExist:
-            raise GrantNotFoundException(detail=f"Le grant avec l'ID {grant_id} n'existe pas")
-        except Exception as exc:
-            self.exception_handler(exc, self.logger)
-
-    def delete_grant(
-        self,
-        grant_id: int
-    ) -> None:
-        """
-        Supprime un grant.
-        
-        Args:
-            grant_id: ID du grant à supprimer
-            
-        Raises:
-            GrantNotFoundException: Si le grant n'existe pas
-        """
-        try:
-            grant = Grant.objects.get(pk=grant_id)
-            grant.delete()
-            
-            logger.info("grant_deleted", grant_id=grant_id)
             
         except Grant.DoesNotExist:
             raise GrantNotFoundException(detail=f"Le grant avec l'ID {grant_id} n'existe pas")

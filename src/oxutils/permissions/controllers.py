@@ -45,13 +45,6 @@ class PermissionController(ControllerBase):
         """
         return self.service.get_roles()
 
-    @http_get("/roles/{role_slug}", response=schemas.RoleSchema)
-    def get_role(self, role_slug: str):
-        """
-        Récupère un rôle par son slug.
-        """
-        return self.service.get_role(role_slug)
-
     # Groupes
     @http_post(
         "/groups", 
@@ -68,14 +61,13 @@ class PermissionController(ControllerBase):
 
     @http_get(
         "/groups", 
-        response=PaginatedResponseSchema[schemas.GroupSchema],
+        response=List[schemas.GroupSchema],
     )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_groups(self):
+    def list_groups(self, app: Optional[str] = None):
         """
         Liste tous les groupes de rôles.
         """
-        return Group.objects.all()
+        return self.service.get_groups(app)
 
     @http_get(
         "/groups/{group_slug}", 
@@ -213,54 +205,6 @@ class PermissionController(ControllerBase):
         )
         return None
 
-    @http_post(
-        "/groups/{group_slug}/sync", 
-        response=schemas.GroupSyncResponseSchema,
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
-    )
-    def sync_group(self, group_slug: str):
-        """
-        Synchronise les grants de tous les utilisateurs d'un groupe.
-        À appeler après modification des RoleGrants ou des rôles du groupe.
-        """
-        return self.service.sync_group(group_slug)
-
-    # Grants
-    @http_post(
-        "/grants", 
-        response=schemas.GrantSchema,
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
-    )
-    def create_grant(self, grant_data: schemas.GrantCreateSchema):
-        """
-        Crée une nouvelle permission personnalisée pour un utilisateur.
-        """
-        return self.service.create_grant(grant_data)
-
-    @http_get(
-        "/grants", 
-        response=PaginatedResponseSchema[schemas.GrantSchema],
-    )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_grants(self, user_id: Optional[int] = None, role: Optional[str] = None):
-        """
-        Liste les grants, avec filtrage optionnel par utilisateur et/ou rôle.
-        """
-        queryset = Grant.objects.select_related(
-            'user_group__group',
-            'role', 'user',
-            'created_by', 
-        ).all()
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
-        if role:
-            queryset = queryset.filter(role__slug=role)
-        return queryset
-
     @http_put(
         "/grants/{grant_id}", 
         response=schemas.GrantSchema,
@@ -306,17 +250,13 @@ class PermissionController(ControllerBase):
 
     @http_get(
         "/role-grants", 
-        response=PaginatedResponseSchema[schemas.RoleGrantSchema],
+        response=List[schemas.RoleGrantSchema],
     )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_role_grants(self, role: Optional[str] = None):
+    def list_role_grants(self, app: Optional[str] = None):
         """
-        Liste les permissions de rôles, avec filtrage optionnel par rôle.
+        Liste les permissions de rôles, avec filtrage optionnel par application.
         """
-        queryset = RoleGrant.objects.select_related('role').all()
-        if role:
-            queryset = queryset.filter(role__slug=role)
-        return queryset
+        return self.service.get_role_grants(app)
 
     @http_put(
         "/role-grants/{grant_id}", 

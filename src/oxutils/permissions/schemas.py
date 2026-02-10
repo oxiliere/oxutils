@@ -42,6 +42,17 @@ class RoleSchema(Schema):
         from_attributes = True
 
 
+class RoleSimpleSchema(Schema):
+    """
+    Schéma pour un rôle.
+    """
+    slug: str
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
 class RoleCreateSchema(Schema):
     """
     Schéma pour la création d'un rôle.
@@ -63,7 +74,9 @@ class GroupSchema(Schema):
     """
     slug: str
     name: str
-    roles: list[RoleSchema] = []
+    roles: list[RoleSimpleSchema] = []
+    member_count: int = 0
+    role_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -94,7 +107,7 @@ class RoleGrantSchema(Schema):
     Schéma pour un role grant.
     """
     id: int
-    role: RoleSchema
+    role: RoleSimpleSchema
     scope: str
     actions: list[str]
     context: dict[str, Any] = {}
@@ -141,7 +154,7 @@ class GrantSchema(Schema):
     """
     id: int
     user_id: UUID
-    role: Optional[RoleSchema] = None
+    role: Optional[RoleSimpleSchema] = None
     group: Optional[str] = None
     scope: str
     actions: list[str]

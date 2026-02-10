@@ -93,7 +93,7 @@ class TenantMainMiddleware(MiddlewareMixin):
                 old_tenant = tenant
                 tenant = None
 
-            if tenant and tenant.user.oxi_id != request.user.id:
+            if tenant and hasattr(request, 'user') and request.user and tenant.user.oxi_id != request.user.id:
                 logger.info("tenant_user_token_oxi_id_doesnt_match", tenant_oxi_id=tenant.oxi_id, user_oxi_id=request.user.id)
                 old_tenant = tenant
                 tenant = None
