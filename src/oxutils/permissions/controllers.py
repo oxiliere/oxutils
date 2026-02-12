@@ -8,12 +8,10 @@ from ninja_extra import (
     http_post,
     http_put,
     http_delete,
-    paginate,
 )
 from ninja_extra.permissions import IsAuthenticated
-from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema
 from . import schemas
-from .models import Role, Group, RoleGrant, Grant
+from .models import Role, Group
 from .services import PermissionService
 from .perms import access_manager
 from oxutils.exceptions import NotFoundException, ValidationException
@@ -37,8 +35,7 @@ class PermissionController(ControllerBase):
     def list_scopes(self):
         return getattr(settings, 'ACCESS_SCOPES', [])
 
-    @http_get("/roles", response=PaginatedResponseSchema[schemas.RoleSchema])
-    @paginate(PageNumberPaginationExtra, page_size=20)
+    @http_get("/roles", response=List[schemas.RoleSchema])
     def list_roles(self):
         """
         Liste tous les rôles.

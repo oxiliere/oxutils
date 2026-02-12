@@ -40,17 +40,8 @@ def assign_role(
     except Role.DoesNotExist:
         raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
     
-    # Filtrer les RoleGrants selon le groupe si fourni
-    if user_group:
-        # Si assigné via un groupe, utiliser les RoleGrants spécifiques au groupe ou génériques
-        role_grants = RoleGrant.objects.filter(
-            role__slug=role
-        ).filter(
-            Q(group=user_group.group) | Q(group__isnull=True)
-        )
-    else:
-        # Si assigné directement, utiliser uniquement les RoleGrants génériques
-        role_grants = RoleGrant.objects.filter(role__slug=role, group__isnull=True)
+    # Récupérer tous les RoleGrants pour ce rôle
+    role_grants = RoleGrant.objects.filter(role__slug=role)
 
     for rg in role_grants:
         Grant.objects.update_or_create(
@@ -232,7 +223,7 @@ def group_sync(group_slug: str) -> dict[str, int]:
     Réapplique tous les rôles du groupe pour assurer la cohérence des permissions héritées.
     
     Cette fonction doit être appelée après :
-    - Création/modification/suppression d'un RoleGrant lié à un groupe
+    - Création/modification/suppression d'un RoleGrant
     - Ajout/suppression d'un rôle dans un groupe
     
     Args:
@@ -293,12 +284,8 @@ def group_sync(group_slug: str) -> dict[str, int]:
         
         # Réassigner tous les rôles du groupe
         for role in group.roles.all():
-            # Récupérer les RoleGrants pour ce rôle (spécifiques au groupe + génériques)
-            role_grants = RoleGrant.objects.filter(
-                role=role
-            ).filter(
-                Q(group=group) | Q(group__isnull=True)
-            )
+            # Récupérer tous les RoleGrants pour ce rôle
+            role_grants = RoleGrant.objects.filter(role=role)
             
             # Préparer les grants correspondants, en excluant les scopes overridés
             for rg in role_grants:
@@ -671,14 +658,12 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
                 "scope": "users",
                 "actions": ["r", "w", "d"],
                 "context": {}
-                # "group": "slug"  # Optionnel: si absent ou None, RoleGrant générique
             },
             {
                 "role": "accountant",
                 "scope": "users",
                 "actions": ["r"],
-                "context": {},
-                "group": "accountants"  # RoleGrant spécifique au groupe accountants
+                "context": {}
             }
         ]
     }
@@ -776,21 +761,10 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
                 f"Le rôle '{rg_data['role']}' n'existe pas pour le role_grant"
             )
         
-        # Gérer le groupe optionnel
-        group_obj = None
-        group_slug = rg_data.get('group')
-        if group_slug:
-            group_obj = groups_cache.get(group_slug)
-            if group_obj is None:
-                raise ValueError(
-                    f"Le groupe '{group_slug}' n'existe pas pour le role_grant"
-                )
-        
-        # Utiliser get_or_create avec la contrainte complète (role, scope, group)
+        # Utiliser get_or_create avec la contrainte (role, scope)
         role_grant, created = RoleGrant.objects.get_or_create(
             role=role,
             scope=rg_data['scope'],
-            group=group_obj,
             defaults={
                 'actions': rg_data.get('actions', []),
                 'context': rg_data.get('context', {})

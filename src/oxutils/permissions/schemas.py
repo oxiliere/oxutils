@@ -74,6 +74,7 @@ class GroupSchema(Schema):
     """
     slug: str
     name: str
+    app: Optional[str] = None
     roles: list[RoleSimpleSchema] = []
     member_count: int = 0
     role_count: int = 0
@@ -88,7 +89,6 @@ class GroupCreateSchema(Schema):
     """
     Schéma pour la création d'un groupe.
     """
-    slug: str
     name: str
     app: Optional[str] = None
     roles: list[str] = []

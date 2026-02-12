@@ -7,7 +7,7 @@
 - Role-based permissions with hierarchical actions
 - Group management for bulk role assignment
 - Custom grant overrides per user
-- RoleGrant templates (generic or group-specific)
+- RoleGrant templates for role permissions
 - Automatic synchronization after changes
 - Bulk operations for performance
 - Full traceability with `created_by` tracking
@@ -48,8 +48,7 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
 **Group**: Collection of roles for easier assignment (e.g., `staff`)
 
 **RoleGrant**: Permission template for a role on a scope
-- Can be **generic** (applies to all users with the role)
-- Can be **group-specific** (applies only when role is assigned via that group)
+- Applies to all users with the role
 
 **Grant**: Effective user permission on a scope
 - **Inherited**: `role != None` (from RoleGrant)
@@ -128,20 +127,12 @@ PERMISSION_PRESET = {
             "scope": "users",
             "actions": ["r", "w", "d"],
             "context": {}
-            # No group = generic RoleGrant
         },
         {
             "role": "editor",
             "scope": "articles",
             "actions": ["r", "w"],
             "context": {}
-        },
-        {
-            "role": "editor",
-            "scope": "articles",
-            "actions": ["r", "w", "d"],  # Extended permissions
-            "context": {},
-            "group": "premium-staff"  # Group-specific RoleGrant
         }
     ]
 }
@@ -456,7 +447,6 @@ user_group = assign_group(user, 'staff', by=admin_user)
 # This:
 # 1. Creates a UserGroup linking user to group
 # 2. Assigns all roles from the group
-# 3. Uses group-specific RoleGrants if available
 ```
 
 ### Revoke Permissions
@@ -503,30 +493,19 @@ stats = group_sync('staff')
 
 ## Advanced Usage
 
-### Group-Specific Permissions
+### Role Permissions
 
 ```python
-# Generic RoleGrant for all editors
+# RoleGrant for all editors
 RoleGrant.objects.create(
     role=editor_role,
     scope='articles',
-    actions=['r', 'w'],
-    group=None  # Generic
+    actions=['r', 'w', 'd']
 )
 
-# Enhanced permissions for premium group
-RoleGrant.objects.create(
-    role=editor_role,
-    scope='articles',
-    actions=['r', 'w', 'd'],  # Can also delete
-    group=premium_group  # Group-specific
-)
-
-# User assigned directly gets ['r', 'w']
+# All users with editor role get ['r', 'w', 'd']
 assign_role(user1, 'editor')
-
-# User assigned via premium group gets ['r', 'w', 'd']
-assign_group(user2, 'premium-staff')
+assign_group(user2, 'staff')  # If staff group includes editor role
 ```
 
 ### Context-Based Permissions
@@ -768,14 +747,14 @@ All exceptions are automatically converted to appropriate HTTP responses by the 
 - **Role**: `unique(slug)`
 - **Group**: `unique(slug)`
 - **UserGroup**: `unique(user, group)`
-- **RoleGrant**: `unique(role, scope, group)`
+- **RoleGrant**: `unique(role, scope)`
 - **Grant**: `unique(user, scope, role, user_group)`
 
 ### Indexes
 
 - Grant: `(user, scope)`, `(user_group)`, GIN on `actions`, GIN on `context`
 - UserGroup: `(user, group)`
-- RoleGrant: `(role)`, `(group)`, `(role, group)`
+- RoleGrant: `(role)`, `(role, scope)`
 
 ## Best Practices
 
@@ -791,23 +770,14 @@ assign_role(user, 'role2')
 assign_role(user, 'role3')
 ```
 
-### 2. Prefer Generic RoleGrants
+### 2. Define Clear RoleGrants
 
 ```python
-# ✅ Good: Generic RoleGrant
+# ✅ Good: Clear RoleGrant
 RoleGrant.objects.create(
     role=editor,
     scope='articles',
-    actions=['r', 'w'],
-    group=None
-)
-
-# ⚠️ Use sparingly: Group-specific
-RoleGrant.objects.create(
-    role=editor,
-    scope='articles',
-    actions=['r', 'w', 'd'],
-    group=premium_group
+    actions=['r', 'w']
 )
 ```
 
@@ -909,7 +879,7 @@ python manage.py migrate permissions
 
 Key migrations:
 - Initial: Creates all models with constraints and indexes
-- Add `group` to RoleGrant: Allows group-specific permissions
+- RoleGrant unique constraint: `(role, scope)`
 - Add `created_by` to Grant: Enables audit trail
 - Update Grant constraint: Includes `user_group` in uniqueness
 

@@ -1,6 +1,7 @@
 from typing import Optional, Any
 from uuid import UUID
 from django.conf import settings
+from django.utils.translation import gettext_lazy as _
 from django.db import transaction
 from django.db.models import Q, Count
 from django.contrib.auth.models import AbstractBaseUser
@@ -316,21 +317,26 @@ class PermissionService(BaseService):
             self.exception_handler(exc, self.logger)
 
     def get_groups(self, app: Optional[str] | None = None):
-        self.check_perm_application(app)
+        try:
+            self.check_perm_application(app)
 
-        qs = Group.objects.prefetch_related('user_groups', 'roles').annotate(
-            member_count=Count('user_groups', distinct=True),
-            role_count=Count('roles', distinct=True),
-        ).all()
+            qs = Group.objects.prefetch_related('user_groups', 'roles').annotate(
+                member_count=Count('user_groups', distinct=True),
+                role_count=Count('roles', distinct=True),
+            ).all()
         
-        if app:
-            qs = qs.filter(
-                Q(app=app) |
-                Q(app__isnull=True)
-            )
+            if app:
+                qs = qs.filter(
+                    Q(app=app) |
+                    Q(app__isnull=True)
+                )
         
-        return list(qs)
+            return list(qs)
+        
+        except Exception as exc:
+            self.exception_handler(exc, self.logger)
 
+    @transaction.atomic
     def create_group(
         self,
         group_data
@@ -340,7 +346,6 @@ class PermissionService(BaseService):
         
         Args:
             group_data: Données du groupe incluant:
-                - slug: Identifiant unique du groupe
                 - name: Nom du groupe
                 - app: Application associée (optionnel)
                 - roles: Liste optionnelle des slugs de rôles à assigner
@@ -353,7 +358,7 @@ class PermissionService(BaseService):
             NotFoundException: Si un rôle n'existe pas
         """
         try:
-            group = Group.objects.create(slug=group_data.slug, name=group_data.name, app=group_data.app)
+            group = Group.objects.create(name=group_data.name, app=group_data.app)
             
             if group_data.roles:
                 roles = Role.objects.filter(slug__in=group_data.roles)
@@ -367,24 +372,25 @@ class PermissionService(BaseService):
                 
                 group.roles.set(roles)
             
-            logger.info("group_created", slug=group_data.slug, name=group_data.name, role_slugs=group_data.roles, role_count=len(group_data.roles) if group_data.roles else 0)
+            logger.info("group_created", slug=group.slug, name=group_data.name, role_slugs=group_data.roles, role_count=len(group_data.roles) if group_data.roles else 0)
             return group
             
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
     def get_role_grants(self, app: Optional[str] = None):
-        self.check_perm_application(app)
+        try:
+            self.check_perm_application(app)
 
-        queryset = RoleGrant.objects.select_related('role', 'group').all()
-        if app:
-            queryset = queryset.filter(
-                Q(role__app=app) |
-                Q(group__app=app) |
-                Q(role__app__isnull=True) |
-                Q(group__app__isnull=True)
-            )
-        return list(queryset)
+            queryset = RoleGrant.objects.select_related('role').all()
+            if app:
+                queryset = queryset.filter(
+                    Q(role__app=app) |
+                    Q(role__app__isnull=True)
+                )
+            return list(queryset)
+        except Exception as exc:
+            self.exception_handler(exc, self.logger)
 
     @transaction.atomic
     def create_role_grant(

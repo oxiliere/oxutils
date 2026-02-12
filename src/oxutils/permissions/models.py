@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils.text import slugify
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from oxutils.models import TimestampMixin
@@ -38,6 +39,11 @@ class Group(TimestampMixin):
     def __str__(self):
         return self.slug
 
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
     class Meta:
         indexes = [
             models.Index(fields=["slug"]),
@@ -73,18 +79,8 @@ class UserGroup(TimestampMixin):
 class RoleGrant(models.Model):
     """
     A grant template of permissions to a role.
-    Peut être lié à un groupe spécifique pour des comportements distincts.
     """
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="grants")
-    group = models.ForeignKey(
-        Group,
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE,
-        related_name="role_grants",
-        help_text="Groupe optionnel pour des comportements spécifiques"
-    )
-
     scope = models.CharField(max_length=100)
     actions = ArrayField(models.CharField(max_length=5))
     context = models.JSONField(default=dict, blank=True)
@@ -95,19 +91,17 @@ class RoleGrant(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["role", "scope", "group"], name="unique_role_scope_group"
+                fields=["role", "scope"], name="unique_role_scope"
             )
         ]
         indexes = [
             models.Index(fields=["role"]),
-            models.Index(fields=["group"]),
-            models.Index(fields=["role", "group"]),
+            models.Index(fields=["role", "scope"]),
         ]
-        ordering = ["role__slug", "group__slug"]
+        ordering = ["role__slug", "scope"]
 
     def __str__(self):
-        group_str = f"[{self.group.slug}]" if self.group else ""
-        return f"{self.role}:{self.scope}{group_str}:{self.actions}"
+        return f"{self.role}:{self.scope}:{self.actions}"
 
 
     def save(self, *args, **kwargs):
