@@ -1,5 +1,7 @@
 from typing import List, Optional
+from uuid import UUID
 from django.conf import settings
+from django.db import transaction
 from django.http import HttpRequest
 from ninja_extra import (
     api_controller,
@@ -112,24 +114,40 @@ class PermissionController(ControllerBase):
     @http_delete(
         "/groups/{group_slug}", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('d')
         ]
     )
+    @transaction.atomic
     def delete_group(self, group_slug: str):
         """
         Supprime un groupe.
         """
         try:
+            # TODO: delete all associations
+
             group = Group.objects.get(slug=group_slug)
             group.delete()
-            return None
+            return 204, None
         except Group.DoesNotExist:
             raise NotFoundException("Groupe non trouvé")
 
-    # Rôles des utilisateurs
+    @http_get(
+        "/groups/{group_slug}/members",
+        response=List[schemas.GroupMemberSchema],
+        permissions=[
+            IsAuthenticated & access_manager('r')
+        ]
+    )
+    def get_group_members(self, group_slug: str):
+        """
+        Récupère les membres d'un groupe.
+        """
+        return self.service.get_group_members(group_slug)
+
+    # Rôles des utilisateurs    
     @http_post(
         "/users/assign-role",
         response=schemas.RoleSchema,
@@ -150,7 +168,7 @@ class PermissionController(ControllerBase):
     @http_post(
         "/users/revoke-role", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('rw')
@@ -186,7 +204,7 @@ class PermissionController(ControllerBase):
     @http_post(
         "/users/revoke-group", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('rw')
@@ -201,6 +219,32 @@ class PermissionController(ControllerBase):
             group_slug=data.group
         )
         return None
+
+    @http_get(
+        "/users/{user_id}/grants",
+        response=List[schemas.GrantSchema],
+        permissions=[
+            IsAuthenticated & access_manager('r')
+        ]
+    )
+    def get_user_grants(self, user_id: UUID, scope: Optional[str] = None, app: Optional[str] = None):
+        """
+        Récupère tous les grants d'un utilisateur.
+        """
+        return self.service.get_user_grants(user_id=user_id, scope=scope, app=app)
+
+    @http_get(
+        "/users/{user_id}/groups",
+        response=List[schemas.GroupSchema],
+        permissions=[
+            IsAuthenticated & access_manager('r')
+        ]
+    )
+    def get_user_groups(self, user_id: UUID):
+        """
+        Récupère tous les groupes d'un utilisateur.
+        """
+        return self.service.get_user_groups(user_id=user_id)
 
     @http_put(
         "/grants/{grant_id}", 
@@ -218,7 +262,7 @@ class PermissionController(ControllerBase):
     @http_delete(
         "/grants/{grant_id}",
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('d')
@@ -271,7 +315,7 @@ class PermissionController(ControllerBase):
     @http_delete(
         "/role-grants/{grant_id}/", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('d')

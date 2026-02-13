@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import transaction
+from oxutils.permissions.models import Grant, RoleGrant, Role
 from oxutils.permissions.actions import ACTIONS
-from oxutils.permissions.models import Grant, Group, UserGroup, Role
 from oxutils.oxiliere.utils import get_tenant_user_model
 from oxutils.oxiliere.models import BaseTenant
 
@@ -12,15 +12,7 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
     tenant_users = tenant_user_model.objects.select_related("user").filter(tenant=tenant, is_owner=True)
 
     access_scope = getattr(settings, 'ACCESS_MANAGER_SCOPE')
-    access_group = getattr(settings, 'ACCESS_MANAGER_GROUP', None)
     access_role = getattr(settings, 'ACCESS_MANAGER_ROLE', None)
-
-    group = None
-    if access_group:
-        try:
-            group = Group.objects.get(slug=access_group)
-        except Group.DoesNotExist:
-            group = None
 
     role = None
     if access_role:
@@ -29,26 +21,42 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
         except Role.DoesNotExist:
             role = None
 
-    bulk_grant = []
-    for tenant_user in tenant_users:
-        if group:
-            user_group, _ = UserGroup.objects.get_or_create(
-                user=tenant_user.user,
-                group=group,
-            )
-        else:
-            user_group = None
-        
-        bulk_grant.append(
-            Grant(
-                user=tenant_user.user,
-                scope=access_scope,
-                role=role,
-                actions=ACTIONS,
-                context={},
-                user_group=user_group,
-                created_by=None,
-            )
-        )
+    role_grants = list(RoleGrant.objects.select_related(
+        'role',
+    ).filter(scope=access_scope))
 
-    Grant.objects.bulk_create(bulk_grant)
+    print("role_grants ========================", role_grants)
+
+    
+    bulk_grant = []
+
+    if not role_grants:
+        for tenant_user in tenant_users:
+            bulk_grant.append(
+                Grant(
+                    user=tenant_user.user,
+                    scope=access_scope,
+                    role=role,
+                    actions=ACTIONS,
+                    context={},
+                    user_group=None,
+                    created_by=None,
+                )
+            )
+    else:
+        for tenant_user in tenant_users:
+            for role_grant in role_grants:
+                bulk_grant.append(
+                    Grant(
+                        user=tenant_user.user,
+                        scope=role_grant.scope,
+                        role=role_grant.role,
+                        actions=role_grant.actions,
+                        context=role_grant.context,
+                        user_group=None,
+                        created_by=None,
+                    )
+                )
+
+    if bulk_grant:
+        Grant.objects.bulk_create(bulk_grant)

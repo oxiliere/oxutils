@@ -45,6 +45,7 @@ class TenantOwnerSchema(Schema):
 
 
 class UserSchema(Schema):
+    id: UUID
     oxi_id: UUID
     first_name: Optional[str] = None
     last_name: Optional[str] = None

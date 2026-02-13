@@ -2,6 +2,7 @@ from typing import Any, Optional
 from datetime import datetime
 from uuid import UUID
 from ninja import Schema
+from oxutils.oxiliere.schemas import UserSchema
 from pydantic import field_validator
 
 from .actions import ACTIONS
@@ -100,6 +101,15 @@ class GroupUpdateSchema(Schema):
     """
     name: Optional[str] = None
     roles: Optional[list[str]] = None
+
+
+class GroupMemberSchema(Schema):
+    """
+    Schéma pour un membre d'un groupe.
+    """
+    user: UserSchema
+    group_id: str
+    created_at: Optional[datetime] = None
 
 
 class RoleGrantSchema(Schema):

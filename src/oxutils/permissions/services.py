@@ -296,7 +296,7 @@ class PermissionService(BaseService):
             
             queryset = Grant.objects.filter(user__pk=user_id).select_related(
                 'role',
-                'group',
+                'user_group__group',
                 'created_by',
             )
             
@@ -306,13 +306,24 @@ class PermissionService(BaseService):
             if app:
                 queryset = queryset.filter(
                     Q(role__app=app) |
-                    Q(group__app=app) |
+                    Q(user_group__group__app=app) |
                     Q(role__app__isnull=True) |
-                    Q(group__app__isnull=True)
+                    Q(user_group__group__app__isnull=True)
                 )
             
             return list(queryset)
             
+        except Exception as exc:
+            self.exception_handler(exc, self.logger)
+
+    def get_user_groups(self, user_id: UUID):
+        try:
+            qs = Group.objects.prefetch_related('user_groups', 'roles').annotate(
+                member_count=Count('user_groups', distinct=True),
+                role_count=Count('roles', distinct=True),
+            ).filter(user_groups__user__pk=user_id)
+            
+            return list(qs)
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
@@ -333,6 +344,16 @@ class PermissionService(BaseService):
         
             return list(qs)
         
+        except Exception as exc:
+            self.exception_handler(exc, self.logger)
+
+    def get_group_members(self, group_slug: str):
+        try:
+            group = Group.objects.get(slug=group_slug)
+            return list(group.user_groups.select_related('user').all())
+        
+        except Group.DoesNotExist:
+            raise GroupNotFoundException(detail=f"Le groupe avec le slug {group_slug} n'existe pas")
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
