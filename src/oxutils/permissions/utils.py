@@ -19,6 +19,7 @@ from .exceptions import (
 def assign_role(
     user: AbstractBaseUser,
     role: str,
+    scope: str,
     *,
     by: Optional[AbstractBaseUser] = None,
     user_group: Optional[UserGroup] = None
@@ -29,6 +30,7 @@ def assign_role(
     Args:
         user: L'utilisateur à qui assigner le rôle
         role: Le slug du rôle à assigner
+        scope: Le scope pour lequel assigner le rôle
         by: L'utilisateur qui effectue l'assignation (pour traçabilité)
         user_group: Le UserGroup associé si le rôle est assigné via un groupe
         
@@ -41,7 +43,7 @@ def assign_role(
         raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
     
     # Récupérer tous les RoleGrants pour ce rôle
-    role_grants = RoleGrant.objects.filter(role__slug=role)
+    role_grants = RoleGrant.objects.filter(role__slug=role, scope=scope)
 
     for rg in role_grants:
         Grant.objects.update_or_create(
@@ -56,13 +58,14 @@ def assign_role(
             }
         )
 
-def revoke_role(user: AbstractBaseUser, role: str) -> tuple[int, dict[str, int]]:
+def revoke_role(user: AbstractBaseUser, role: str, scope: str) -> tuple[int, dict[str, int]]:
     """
-    Révoque un rôle d'un utilisateur en supprimant tous les grants associés.
+    Révoque un rôle d'un utilisateur en supprimant tous les grants associés pour un scope donné.
     
     Args:
         user: L'utilisateur dont on révoque le rôle
         role: Le slug du rôle à révoquer
+        scope: Le scope pour lequel révoquer le rôle
         
     Returns:
         Tuple contenant le nombre d'objets supprimés et un dictionnaire des types supprimés
@@ -77,7 +80,8 @@ def revoke_role(user: AbstractBaseUser, role: str) -> tuple[int, dict[str, int]]
     
     return Grant.objects.filter(
         user__pk=user.pk,
-        role__slug=role
+        role__slug=role,
+        scope=scope
     ).delete()
 
 
@@ -113,7 +117,10 @@ def assign_group(user: AbstractBaseUser, group: str, by: Optional[AbstractBaseUs
 
     # Assigner tous les rôles du groupe avec le lien vers UserGroup
     for role in _group.roles.all():
-        assign_role(user, role.slug, by=by, user_group=user_group)
+        # Récupérer tous les scopes pour ce rôle
+        scopes = RoleGrant.objects.filter(role=role).values_list('scope', flat=True).distinct()
+        for scope in scopes:
+            assign_role(user, role.slug, scope, by=by, user_group=user_group)
     
     return user_group
 
@@ -163,37 +170,36 @@ def revoke_group(user: AbstractBaseUser, group: str) -> tuple[int, dict[str, int
 def override_grant(
     user: AbstractBaseUser,
     scope: str,
-    remove_actions: list[str]
+    actions: list[str],
+    role: Optional[str] = None
 ) -> None:
     """
-    Modifie un grant existant en retirant certaines actions.
-    Si toutes les actions sont retirées, le grant est supprimé.
-    Le grant devient personnalisé (role=None) après modification.
+    Modifie un grant existant en définissant de nouvelles actions.
+    Si actions est vide, le grant est supprimé.
+    Le grant devient verrouillé (locked=True) après modification.
     
     Args:
         user: L'utilisateur dont on modifie le grant
         scope: Le scope du grant à modifier
-        remove_actions: Liste des actions à retirer (seront expandées)
+        actions: Liste des nouvelles actions (seront expandées). Si vide, supprime le grant.
+        role: Optionnel, slug du rôle pour filtrer le grant spécifique
         
     Raises:
         GrantNotFoundException: Si le grant n'existe pas
     """
-    grant: Optional[Grant] = Grant.objects.select_related("user_group", "role").filter(user__pk=user.pk, scope=scope).first()
+    queryset = Grant.objects.select_related("user_group", "role").filter(user__pk=user.pk, scope=scope)
+    
+    if role:
+        queryset = queryset.filter(role__slug=role)
+    
+    grant: Optional[Grant] = queryset.first()
     if not grant:
         raise GrantNotFoundException(
             detail=f"Aucun grant trouvé pour l'utilisateur sur le scope '{scope}'"
         )
 
-    # Travailler avec les actions expandées du grant
-    current_actions: set[str] = set(grant.actions)
-    # Ne PAS expander les actions à retirer - on retire seulement ce qui est demandé
-    actions_to_remove: set[str] = set(remove_actions)
-
-    # Retirer les actions demandées des actions actuelles
-    remaining_actions = current_actions - actions_to_remove
-
-    # Si plus d'actions, supprimer le grant
-    if not remaining_actions:
+    # Si actions est vide, supprimer le grant
+    if not actions:
         user_group = grant.user_group
         grant.delete()
         
@@ -210,10 +216,11 @@ def override_grant(
         
         return
 
-    # Mettre à jour le grant avec les nouvelles actions (garder la forme expandée)
-    grant.actions = sorted(remaining_actions)
-    grant.role = None  # Le grant devient personnalisé
-    grant.save(update_fields=["actions", "role", "updated_at"])
+    # Expander et définir les nouvelles actions
+    expanded_actions = expand_actions(actions)
+    grant.actions = expanded_actions
+    grant.locked = True  # Le grant devient verrouillé (protégé du group_sync)
+    grant.save(update_fields=["actions", "locked", "updated_at"])
 
 
 @transaction.atomic
@@ -261,22 +268,22 @@ def group_sync(group_slug: str) -> dict[str, int]:
     for user_group in user_groups:
         user = user_group.user
         
-        # Récupérer les scopes avec des grants personnalisés (role=None) pour cet utilisateur et ce UserGroup
+        # Récupérer les scopes avec des grants verrouillés (locked=True) pour cet utilisateur et ce UserGroup
         # Ces scopes doivent être exclus de la synchronisation
         overridden_scopes = set(
             Grant.objects.filter(
                 user=user,
                 user_group=user_group,
-                role__isnull=True
+                locked=True
             ).values_list('scope', flat=True)
         )
         
-        # Supprimer uniquement les grants liés à ce UserGroup qui ont un rôle
-        # Les grants avec role=None sont des grants personnalisés (overridés) et doivent être préservés
+        # Supprimer uniquement les grants liés à ce UserGroup qui ne sont pas verrouillés
+        # Les grants avec locked=True sont des grants personnalisés (overridés) et doivent être préservés
         deleted_count, _ = Grant.objects.filter(
             user=user,
             user_group=user_group,
-            role__isnull=False  # Ne supprimer que les grants avec un rôle
+            locked=False  # Ne supprimer que les grants non verrouillés
         ).delete()
         
         # Préparer les grants à créer en bulk

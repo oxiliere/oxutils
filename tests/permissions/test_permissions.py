@@ -149,7 +149,7 @@ class TestRoleAssignment:
 
     def test_assign_role_creates_grants(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test that assigning a role creates appropriate grants."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role)
         assert grant is not None
@@ -159,23 +159,23 @@ class TestRoleAssignment:
     def test_assign_role_not_found(self, test_user, admin_user):
         """Test assigning a non-existent role raises exception."""
         with pytest.raises(RoleNotFoundException):
-            assign_role(test_user, 'nonexistent', by=admin_user)
+            assign_role(test_user, 'nonexistent', 'articles', by=admin_user)
 
     def test_assign_role_already_assigned(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test assigning an already assigned role creates duplicate grants."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Second assignment should work (creates duplicate grants)
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Check we have grants
         assert Grant.objects.filter(user=test_user, role=editor_role).count() >= 1
 
     def test_revoke_role(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test revoking a role removes grants."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
-        deleted_count, info = revoke_role(test_user, 'editor')
+        deleted_count, info = revoke_role(test_user, 'editor', 'articles')
         
         assert deleted_count > 0
         assert not Grant.objects.filter(user=test_user, role=editor_role).exists()
@@ -183,7 +183,7 @@ class TestRoleAssignment:
     def test_revoke_role_not_found(self, test_user):
         """Test revoking a non-existent role raises exception."""
         with pytest.raises(RoleNotFoundException):
-            revoke_role(test_user, 'nonexistent')
+            revoke_role(test_user, 'nonexistent', 'articles')
 
 
 class TestGroupAssignment:
@@ -229,7 +229,7 @@ class TestPermissionCheck:
 
     def test_check_with_grant(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test checking permissions with existing grant."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert check(test_user, 'articles', ['r']) is True
         assert check(test_user, 'articles', ['w']) is True
@@ -249,14 +249,14 @@ class TestPermissionCheck:
             context={'tenant_id': 123}
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert check(test_user, 'articles', ['r'], tenant_id=123) is True
         assert check(test_user, 'articles', ['r'], tenant_id=456) is False
 
     def test_check_with_role_filter(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test checking permissions with role filter."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert check(test_user, 'articles', ['r'], role='editor') is True
         assert check(test_user, 'articles', ['r'], role='nonexistent') is False
@@ -267,7 +267,7 @@ class TestStringCheck:
 
     def test_str_check_basic(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test basic string check."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert str_check(test_user, 'articles:r') is True
         assert str_check(test_user, 'articles:w') is True
@@ -275,7 +275,7 @@ class TestStringCheck:
 
     def test_str_check_with_role(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test string check with role."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert str_check(test_user, 'articles:r:editor') is True
         assert str_check(test_user, 'articles:r:nonexistent') is False
@@ -289,7 +289,7 @@ class TestStringCheck:
             context={'tenant_id': 123}
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert str_check(test_user, 'articles:r?tenant_id=123') is True
         assert str_check(test_user, 'articles:r?tenant_id=456') is False
@@ -303,37 +303,35 @@ class TestStringCheck:
 class TestGrantOverride:
     """Test grant override functionality."""
 
-    def test_override_grant_removes_actions(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test overriding a grant to remove actions."""
-        assign_role(test_user, 'editor', by=admin_user)
+    def test_override_grant_sets_new_actions(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test overriding a grant with new actions."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Check initial state
         grant_before = Grant.objects.get(user=test_user, scope='articles')
         assert 'w' in grant_before.actions
         
-        # Override to remove 'w' action
-        override_grant(test_user, 'articles', remove_actions=['w'])
+        # Override with new actions (only 'r')
+        override_grant(test_user, 'articles', actions=['r'])
         
-        # Grant should still exist with only 'r' action
-        # Since 'w' implies 'r', removing 'w' leaves only 'r'
-        # But collapse_actions(['r']) = {'r'}, so we should have 'r' only
+        # Grant should exist with only 'r' action
         grant_after = Grant.objects.get(user=test_user, scope='articles')
-        assert grant_after.role is None  # Grant is now custom
+        assert grant_after.locked is True  # Grant is now locked (custom)
         assert 'r' in grant_after.actions
         assert 'w' not in grant_after.actions
 
-    def test_override_grant_removes_all_actions(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test overriding a grant to remove all actions deletes it."""
-        assign_role(test_user, 'editor', by=admin_user)
+    def test_override_grant_with_empty_actions_deletes(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test overriding a grant with empty actions deletes it."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
-        override_grant(test_user, 'articles', remove_actions=['r', 'w'])
+        override_grant(test_user, 'articles', actions=[])
         
         assert not Grant.objects.filter(user=test_user, scope='articles').exists()
 
     def test_override_grant_not_found(self, test_user):
         """Test overriding a non-existent grant raises exception."""
         with pytest.raises(GrantNotFoundException):
-            override_grant(test_user, 'articles', remove_actions=['w'])
+            override_grant(test_user, 'articles', actions=['r'])
 
 
 class TestGroupSync:
@@ -365,18 +363,18 @@ class TestGroupSync:
         assert Grant.objects.filter(user=test_user, scope='articles').exists()
         
         # Override a grant
-        override_grant(test_user, 'articles', remove_actions=['w'])
+        override_grant(test_user, 'articles', actions=['r'])
         
         # Verify override worked
         grant_after_override = Grant.objects.get(user=test_user, scope='articles')
-        assert grant_after_override.role is None  # Custom grant
+        assert grant_after_override.locked is True  # Locked grant
         
         # Sync group
         stats = group_sync('staff')
         
-        # Check override was preserved (custom grants should not be deleted)
+        # Check override was preserved (locked grants should not be deleted)
         grant_after_sync = Grant.objects.get(user=test_user, scope='articles')
-        assert grant_after_sync.role is None  # Still custom
+        assert grant_after_sync.locked is True  # Still locked
         assert 'r' in grant_after_sync.actions
         assert 'w' not in grant_after_sync.actions
 
@@ -386,7 +384,7 @@ class TestScopePermission:
 
     def test_scope_permission_basic(self, test_user, editor_role, editor_role_grant, admin_user):
         """Test basic ScopePermission check."""
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         perm = ScopePermission('articles:r')
         
@@ -405,7 +403,7 @@ class TestScopePermission:
             context={'tenant_id': 123}
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         perm = ScopePermission('articles:r', ctx={'tenant_id': 123})
         
@@ -477,7 +475,7 @@ class TestCacheCheck:
         """Test that cache is disabled when setting is False."""
         from oxutils.permissions.caches import cache_check
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Should work without cacheops
         result = cache_check(test_user, 'articles', ['r'])
@@ -488,7 +486,7 @@ class TestCacheCheck:
         """Test that cache is enabled when setting is True."""
         from oxutils.permissions.caches import cache_check
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Should work with caching enabled
         result = cache_check(test_user, 'articles', ['r'])
@@ -565,7 +563,7 @@ class TestGroupSpecificRoleGrants:
             group=None  # Generic
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         assert check(test_user, 'articles', ['r']) is True
         assert check(test_user, 'articles', ['w']) is True
@@ -592,11 +590,11 @@ class TestGroupSpecificRoleGrants:
         )
         
         # Direct assignment gets generic permissions
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         assert check(test_user, 'articles', ['d']) is False
         
         # Revoke and assign via group
-        revoke_role(test_user, 'editor')
+        revoke_role(test_user, 'editor', 'articles')
         assign_group(test_user, 'premium', by=admin_user)
         
         # Check that user has permissions from group
@@ -662,7 +660,7 @@ class TestAnyActionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # User has 'r', checking for ['r', 'w', 'd'] should return True (has at least 'r')
         assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
@@ -679,7 +677,7 @@ class TestAnyActionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # User has ['r', 'w'], checking for any of ['r', 'w', 'd'] should be True
         assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
@@ -699,7 +697,7 @@ class TestAnyActionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Check with role filter
         assert any_action_check(test_user, 'articles', ['r', 'w'], role='editor') is True
@@ -734,7 +732,7 @@ class TestAnyPermissionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # User has 'articles:r', checking for ['articles:r', 'invoices:w'] should be True
         assert any_permission_check(test_user, 'articles:r', 'invoices:w') is True
@@ -757,7 +755,7 @@ class TestAnyPermissionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # User has both permissions
         assert any_permission_check(test_user, 'articles:r', 'invoices:r') is True
@@ -777,7 +775,7 @@ class TestAnyPermissionCheck:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Check with role in permission string
         assert any_permission_check(
@@ -839,7 +837,7 @@ class TestScopeAnyActionPermission:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         # Create mock request
         request = Mock()
@@ -862,7 +860,7 @@ class TestScopeAnyActionPermission:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         request = Mock()
         request.user = test_user
@@ -909,7 +907,7 @@ class TestScopeAnyPermission:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         request = Mock()
         request.user = test_user
@@ -937,7 +935,7 @@ class TestScopeAnyPermission:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         request = Mock()
         request.user = test_user
@@ -955,7 +953,7 @@ class TestScopeAnyPermission:
             group=None
         )
         
-        assign_role(test_user, 'editor', by=admin_user)
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
         
         request = Mock()
         request.user = test_user

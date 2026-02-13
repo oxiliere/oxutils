@@ -51,8 +51,8 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
 - Applies to all users with the role
 
 **Grant**: Effective user permission on a scope
-- **Inherited**: `role != None` (from RoleGrant)
-- **Custom**: `role = None` (after override)
+- **Inherited**: `locked = False` (from RoleGrant, can be modified by group_sync)
+- **Custom**: `locked = True` (after override, protected from group_sync)
 
 **UserGroup**: Links user to group for traceability
 
@@ -430,10 +430,10 @@ class ContentController:
 ```python
 from oxutils.permissions.utils import assign_role
 
-# Assign role directly
-assign_role(user, 'editor', by=admin_user)
+# Assign role directly for a specific scope
+assign_role(user, 'editor', 'articles', by=admin_user)
 
-# This creates Grants based on RoleGrants for 'editor'
+# This creates Grants based on RoleGrants for 'editor' on 'articles' scope
 ```
 
 ### Assign Group to User
@@ -454,8 +454,8 @@ user_group = assign_group(user, 'staff', by=admin_user)
 ```python
 from oxutils.permissions.utils import revoke_role, revoke_group
 
-# Revoke a single role
-deleted_count, info = revoke_role(user, 'editor')
+# Revoke a single role for a specific scope
+deleted_count, info = revoke_role(user, 'editor', 'articles')
 
 # Revoke entire group (removes all associated grants)
 deleted_count, info = revoke_group(user, 'staff')
@@ -467,11 +467,14 @@ deleted_count, info = revoke_group(user, 'staff')
 from oxutils.permissions.utils import override_grant
 
 # User has ['r', 'w', 'd'] on articles via role
-# Reduce to read-only
-override_grant(user, 'articles', remove_actions=['w', 'd'])
+# Override to read-only
+override_grant(user, 'articles', actions=['r'])
 
-# Grant becomes custom (role=None)
+# Grant becomes locked (locked=True)
 # Will NOT be affected by future group syncs
+
+# To remove a grant entirely
+override_grant(user, 'articles', actions=[])
 ```
 
 ### Synchronize Group
@@ -486,9 +489,9 @@ stats = group_sync('staff')
 # Returns: {"users_synced": 5, "grants_updated": 15}
 
 # This:
-# 1. Deletes old grants (except custom overrides)
+# 1. Deletes old grants (except locked ones)
 # 2. Recreates grants from current RoleGrants
-# 3. Preserves custom grants (role=None)
+# 3. Preserves locked grants (locked=True)
 ```
 
 ## Advanced Usage
@@ -503,8 +506,8 @@ RoleGrant.objects.create(
     actions=['r', 'w', 'd']
 )
 
-# All users with editor role get ['r', 'w', 'd']
-assign_role(user1, 'editor')
+# All users with editor role get ['r', 'w', 'd'] on articles
+assign_role(user1, 'editor', 'articles')
 assign_group(user2, 'staff')  # If staff group includes editor role
 ```
 
@@ -609,27 +612,27 @@ rg.save()
 group_sync('staff')
 
 # All staff members now have delete permission
-# EXCEPT those with custom overrides
+# EXCEPT those with locked grants
 ```
 
 ### Handle Permission Abuse
 
 ```python
-# User abuses permissions, reduce them
-override_grant(user, 'articles', remove_actions=['d'])
+# User abuses permissions, set restricted actions
+override_grant(user, 'articles', actions=['r', 'w'])
 
-# Grant becomes custom (role=None)
+# Grant becomes locked (locked=True)
 # Future group syncs won't affect this user's permissions on 'articles'
 ```
 
 ### Temporary Elevated Access
 
 ```python
-# Give temporary admin access
-assign_role(user, 'admin', by=manager)
+# Give temporary admin access for a specific scope
+assign_role(user, 'admin', 'articles', by=manager)
 
 # Later, revoke it
-revoke_role(user, 'admin')
+revoke_role(user, 'admin', 'articles')
 
 # User returns to their group permissions
 ```
@@ -732,7 +735,7 @@ from oxutils.permissions.exceptions import (
 )
 
 try:
-    assign_role(user, 'invalid-role')
+    assign_role(user, 'invalid-role', 'articles')
 except RoleNotFoundException as e:
     # Handle: "Le rôle 'invalid-role' n'existe pas"
     pass
@@ -765,9 +768,9 @@ All exceptions are automatically converted to appropriate HTTP responses by the 
 assign_group(user, 'staff')
 
 # ❌ Avoid (unless specific need)
-assign_role(user, 'role1')
-assign_role(user, 'role2')
-assign_role(user, 'role3')
+assign_role(user, 'role1', 'articles')
+assign_role(user, 'role2', 'articles')
+assign_role(user, 'role3', 'articles')
 ```
 
 ### 2. Define Clear RoleGrants
@@ -812,7 +815,7 @@ check(user, 'data', ['w'], tenant_id=456)  # False
 
 ```python
 # Always pass by parameter for audit trail
-assign_role(user, 'editor', by=admin_user)
+assign_role(user, 'editor', 'articles', by=admin_user)
 assign_group(user, 'staff', by=admin_user)
 ```
 
@@ -899,15 +902,15 @@ class PermissionsTest(TestCase):
         )
     
     def test_role_assignment(self):
-        assign_role(self.user, 'editor')
+        assign_role(self.user, 'editor', 'articles')
         
         self.assertTrue(check(self.user, 'articles', ['r']))
         self.assertTrue(check(self.user, 'articles', ['w']))
         self.assertFalse(check(self.user, 'articles', ['d']))
     
     def test_override(self):
-        assign_role(self.user, 'editor')
-        override_grant(self.user, 'articles', remove_actions=['w'])
+        assign_role(self.user, 'editor', 'articles')
+        override_grant(self.user, 'articles', actions=['r'])
         
         self.assertTrue(check(self.user, 'articles', ['r']))
         self.assertFalse(check(self.user, 'articles', ['w']))

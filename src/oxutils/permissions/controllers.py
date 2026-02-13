@@ -1,7 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
 from django.conf import settings
-from django.db import transaction
 from django.http import HttpRequest
 from ninja_extra import (
     api_controller,
@@ -13,10 +12,8 @@ from ninja_extra import (
 )
 from ninja_extra.permissions import IsAuthenticated
 from . import schemas
-from .models import Role, Group
 from .services import PermissionService
 from .perms import access_manager
-from oxutils.exceptions import NotFoundException, ValidationException
 
 
 
@@ -76,10 +73,7 @@ class PermissionController(ControllerBase):
         """
         Récupère un groupe par son slug.
         """
-        try:
-            return Group.objects.get(slug=group_slug)
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
+        return self.service.get_group(group_slug)
 
     @http_put(
         "/groups/{group_slug}", 
@@ -92,24 +86,11 @@ class PermissionController(ControllerBase):
         """
         Met à jour un groupe existant.
         """
-        try:
-            group = Group.objects.get(slug=group_slug)
-            
-            # Mise à jour des champs simples
-            for field, value in group_data.dict(exclude_unset=True, exclude={"roles"}).items():
-                setattr(group, field, value)
-            
-            # Mise à jour des rôles si fournis
-            if group_data.roles is not None:
-                roles = Role.objects.filter(slug__in=group_data.roles)
-                group.roles.set(roles)
-            
-            group.save()
-            return group
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
-        except Exception as e:
-            raise ValidationException(str(e))
+        return self.service.update_group(
+            group_slug,
+            group_data.dict(exclude_unset=True, exclude={"roles"}),
+            group_data.roles
+        )
 
     @http_delete(
         "/groups/{group_slug}", 
@@ -120,19 +101,12 @@ class PermissionController(ControllerBase):
             IsAuthenticated & access_manager('d')
         ]
     )
-    @transaction.atomic
     def delete_group(self, group_slug: str):
         """
         Supprime un groupe.
         """
-        try:
-            # TODO: delete all associations
-
-            group = Group.objects.get(slug=group_slug)
-            group.delete()
-            return 204, None
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
+        self.service.delete_group(group_slug)
+        return 204, None
 
     @http_get(
         "/groups/{group_slug}/members",
@@ -162,6 +136,7 @@ class PermissionController(ControllerBase):
         return self.service.assign_role_to_user(
             user_id=data.user_id,
             role_slug=data.role,
+            scope=data.scope,
             by_user=request.user if request.user.is_authenticated else None
         )
 
@@ -180,7 +155,30 @@ class PermissionController(ControllerBase):
         """
         self.service.revoke_role_from_user(
             user_id=data.user_id,
-            role_slug=data.role
+            role_slug=data.role,
+            scope=data.scope
+        )
+        return None
+
+    @http_post(
+        "/users/override-grant",
+        response={
+            204: None
+        },
+        permissions=[
+            IsAuthenticated & access_manager('rw')
+        ]
+    )
+    def override_grant_for_user(self, data: schemas.OverrideGrantSchema):
+        """
+        Modifie un grant utilisateur en définissant de nouvelles actions.
+        Si actions est vide, le grant est supprimé.
+        """
+        self.service.override_grant_for_user(
+            user_id=data.user_id,
+            scope=data.scope,
+            actions=data.actions,
+            role=data.role
         )
         return None
 
@@ -258,22 +256,6 @@ class PermissionController(ControllerBase):
         Met à jour une permission personnalisée.
         """
         return self.service.update_grant(grant_id, grant_data)
-
-    @http_delete(
-        "/grants/{grant_id}",
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('d')
-        ]
-    )
-    def delete_grant(self, grant_id: int):
-        """
-        Supprime une permission personnalisée.
-        """
-        self.service.delete_grant(grant_id)
-        return None
 
     # Role Grants
     @http_post(

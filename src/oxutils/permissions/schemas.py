@@ -1,6 +1,7 @@
 from typing import Any, Optional
 from datetime import datetime
 from uuid import UUID
+from django.conf import settings
 from ninja import Schema
 from oxutils.oxiliere.schemas import UserSchema
 from pydantic import field_validator
@@ -86,6 +87,11 @@ class GroupSchema(Schema):
         from_attributes = True
 
 
+class SimpleGroupSchema(Schema):
+    slug: str
+    name: str
+
+
 class GroupCreateSchema(Schema):
     """
     Schéma pour la création d'un groupe.
@@ -164,8 +170,9 @@ class GrantSchema(Schema):
     """
     id: int
     user_id: UUID
-    role: Optional[RoleSimpleSchema] = None
-    group: Optional[str] = None
+    role: RoleSimpleSchema
+    locked: bool = False
+    group: Optional[SimpleGroupSchema] = None
     scope: str
     actions: list[str]
     context: dict[str, Any] = {}
@@ -177,7 +184,7 @@ class GrantSchema(Schema):
 
     @staticmethod
     def resolve_group(obj):
-        return obj.user_group.group.slug if obj.user_group else None
+        return obj.user_group.group if obj.user_group else None
 
 
 class GrantCreateSchema(Schema):
@@ -188,7 +195,7 @@ class GrantCreateSchema(Schema):
     scope: str
     actions: list[str]
     context: dict[str, Any] = {}
-    role: Optional[str] = None
+    role: str
     
     @field_validator('actions')
     @classmethod
@@ -246,7 +253,43 @@ class AssignRoleSchema(Schema):
     """
     user_id: UUID
     role: str
-    by_user_id: Optional[UUID] = None
+    scope: str
+
+    @field_validator('scope')
+    @classmethod
+    def validate_scope(cls, v: str) -> str:
+        """Valide que le scope est valide."""
+        scopes = getattr(settings, 'ACCESS_SCOPES', [])
+        
+        if v not in scopes:
+            raise ValueError(f"Invalid scope '{v}'")
+        return v
+
+
+class OverrideGrantSchema(Schema):
+    """
+    Schéma pour modifier un grant utilisateur.
+    """
+    user_id: UUID
+    scope: str
+    role: str
+    actions: list[str]
+
+    @field_validator('scope')
+    @classmethod
+    def validate_scope(cls, v: str) -> str:
+        """Valide que le scope est valide."""
+        scopes = getattr(settings, 'ACCESS_SCOPES', [])
+
+        if v not in scopes:
+            raise ValueError(f"Invalid scope '{v}'")
+        return v
+
+    @field_validator('actions')
+    @classmethod
+    def validate_actions(cls, v: list[str]) -> list[str]:
+        """Valide que toutes les actions sont valides."""
+        return validate_actions_list(v)
 
 
 class RevokeRoleSchema(Schema):
@@ -254,7 +297,18 @@ class RevokeRoleSchema(Schema):
     Schéma pour révoquer un rôle d'un utilisateur.
     """
     user_id: UUID
+    scope: str
     role: str
+
+    @field_validator('scope')
+    @classmethod
+    def validate_scope(cls, v: str) -> str:
+        """Valide que le scope est valide."""
+        scopes = getattr(settings, 'ACCESS_SCOPES', [])
+
+        if v not in scopes:
+            raise ValueError(f"Invalid scope '{v}'")
+        return v
 
 
 class AssignGroupSchema(Schema):

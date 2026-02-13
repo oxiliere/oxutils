@@ -112,6 +112,9 @@ class RoleGrant(models.Model):
 class Grant(TimestampMixin):
     """
     A grant of permissions to a user.
+    
+    - locked = False: Inherited from RoleGrant, can be modified by group_sync
+    - locked = True: Custom grant (via override_grant), protected from group_sync
     """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -122,11 +125,11 @@ class Grant(TimestampMixin):
     # traçabilité
     role = models.ForeignKey(
         Role,
-        null=True,
-        blank=True,
         related_name="user_grants",
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
     )
+
+    locked = models.BooleanField(default=False, help_text="Si True, ce grant ne sera pas modifié par group_sync")
     
     # Lien avec UserGroup pour tracer l'origine du grant
     user_group = models.ForeignKey(
@@ -159,6 +162,7 @@ class Grant(TimestampMixin):
         indexes = [
             models.Index(fields=["user", "scope"]),
             models.Index(fields=["user_group"]),
+            models.Index(fields=["locked"]),
             GinIndex(fields=["actions"]),
             GinIndex(fields=["context"]),
         ]
