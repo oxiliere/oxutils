@@ -488,10 +488,45 @@ from oxutils.permissions.utils import group_sync
 stats = group_sync('staff')
 # Returns: {"users_synced": 5, "grants_updated": 15}
 
+# Sync specific roles only (performance optimization)
+stats = group_sync('staff', role_slugs=['editor', 'viewer'])
+# Returns: {"users_synced": 5, "grants_updated": 8}
+
+# Sync specific scope only (performance optimization)
+stats = group_sync('staff', scope='articles')
+# Returns: {"users_synced": 5, "grants_updated": 5}
+
+# Sync specific roles and scope (targeted sync)
+stats = group_sync('staff', role_slugs=['editor'], scope='articles')
+# Returns: {"users_synced": 5, "grants_updated": 3}
+
 # This:
 # 1. Deletes old grants (except locked ones)
 # 2. Recreates grants from current RoleGrants
 # 3. Preserves locked grants (locked=True)
+# 4. Filters by role_slugs and/or scope if provided
+```
+
+### Synchronize Role
+
+After modifying RoleGrants for a role, sync all independent role assignments:
+
+```python
+from oxutils.permissions.utils import role_sync
+
+# Sync all users with independent role assignments
+stats = role_sync('editor')
+# Returns: {"grants_updated": 12}
+
+# Sync specific scope only (performance optimization)
+stats = role_sync('editor', scope='articles')
+# Returns: {"grants_updated": 3}
+
+# This:
+# 1. Updates grants for users with independent role assignments (user_group=None)
+# 2. Does NOT affect group-based grants (use group_sync for those)
+# 3. Preserves locked grants (locked=True)
+# 4. Updates actions and context directly (no delete/recreate)
 ```
 
 ## Advanced Usage
@@ -645,8 +680,14 @@ The system uses bulk operations for optimal performance:
 
 ```python
 # group_sync uses bulk_create with update_conflicts
-# 100 users × 10 grants = 100 SQL queries (not 1000)
+# 100 users × 10 grants = efficient bulk operations
 stats = group_sync('large-group')
+
+# Use filters for better performance on large datasets
+stats = group_sync('large-group', role_slugs=['editor'], scope='articles')
+
+# role_sync uses direct updates (no delete/recreate)
+stats = role_sync('editor', scope='articles')
 ```
 
 ### Permission Check Caching
@@ -792,7 +833,15 @@ role_grant.actions = ['r', 'w', 'd']
 role_grant.save()
 
 # ✅ Sync immediately
+# For group-based grants:
 group_sync('staff')
+
+# For independent role assignments:
+role_sync('editor')
+
+# Or sync both with filters for performance:
+group_sync('staff', role_slugs=['editor'], scope='articles')
+role_sync('editor', scope='articles')
 ```
 
 ### 4. Use Context for Multi-Tenancy
@@ -837,6 +886,12 @@ CACHEOPS_REDIS = "redis://localhost:6379/1"
 ```python
 # After modifying RoleGrants, sync the group
 group_sync('staff')
+
+# Or sync specific role/scope for better performance
+group_sync('staff', role_slugs=['editor'], scope='articles')
+
+# Also sync independent role assignments
+role_sync('editor', scope='articles')
 ```
 
 ### Override Not Working

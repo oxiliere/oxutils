@@ -224,7 +224,7 @@ def override_grant(
 
 
 @transaction.atomic
-def group_sync(group_slug: str) -> dict[str, int]:
+def group_sync(group_slug: str, role_slugs: Optional[list[str]] = None, scope: Optional[str] = None) -> dict[str, int]:
     """
     Synchronise les grants de tous les utilisateurs d'un groupe après modification des RoleGrants.
     Réapplique tous les rôles du groupe pour assurer la cohérence des permissions héritées.
@@ -235,6 +235,8 @@ def group_sync(group_slug: str) -> dict[str, int]:
     
     Args:
         group_slug: Le slug du groupe à synchroniser
+        role_slugs: Optionnel, liste des slugs de rôles pour limiter la synchronisation à ces rôles uniquement
+        scope: Optionnel, scope spécifique pour limiter la synchronisation (améliore les performances)
         
     Returns:
         Dictionnaire avec les statistiques:
@@ -245,85 +247,203 @@ def group_sync(group_slug: str) -> dict[str, int]:
         
     Raises:
         GroupNotFoundException: Si le groupe n'existe pas
+        RoleNotFoundException: Si un des rôles spécifiés n'existe pas
         
     Example:
         >>> # Après modification d'un RoleGrant
         >>> group_sync("admins")
         {"users_synced": 5, "grants_updated": 15}
+        
+        >>> # Synchroniser uniquement le rôle 'editor'
+        >>> group_sync("admins", role_slugs=["editor"])
+        {"users_synced": 5, "grants_updated": 5}
+        
+        >>> # Synchroniser plusieurs rôles pour un scope spécifique
+        >>> group_sync("admins", role_slugs=["editor", "viewer"], scope="articles")
+        {"users_synced": 5, "grants_updated": 3}
     """
     try:
         group = Group.objects.prefetch_related('roles').get(slug=group_slug)
     except Group.DoesNotExist:
         raise GroupNotFoundException(detail=f"Le groupe '{group_slug}' n'existe pas")
     
-    # Récupérer tous les UserGroups liés à ce groupe
+    # Si des rôles spécifiques sont demandés, vérifier qu'ils existent et appartiennent au groupe
+    if role_slugs:
+        group_role_slugs = set(group.roles.values_list('slug', flat=True))
+        for role_slug in role_slugs:
+            try:
+                Role.objects.get(slug=role_slug)
+                if role_slug not in group_role_slugs:
+                    raise RoleNotFoundException(
+                        detail=f"Le rôle '{role_slug}' n'appartient pas au groupe '{group_slug}'"
+                    )
+            except Role.DoesNotExist:
+                raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas")
+    
+    # Construire une subquery pour identifier les grants verrouillés
+    # Ces grants doivent être exclus de la synchronisation
+    locked_grants_subquery = Grant.objects.filter(
+        user_group__group=group,
+        locked=True
+    )
+    
+    # Appliquer les mêmes filtres que pour la synchronisation
+    if scope:
+        locked_grants_subquery = locked_grants_subquery.filter(scope=scope)
+    if role_slugs:
+        locked_grants_subquery = locked_grants_subquery.filter(role__slug__in=role_slugs)
+    
+    # Supprimer uniquement les grants liés à ce groupe qui ne sont pas verrouillés
+    # Les grants avec locked=True sont des grants personnalisés (overridés) et doivent être préservés
+    delete_query = Grant.objects.filter(
+        user_group__group=group,
+        locked=False  # Ne supprimer que les grants non verrouillés
+    )
+    
+    # Si des rôles spécifiques sont demandés, ne supprimer que les grants de ces rôles
+    if role_slugs:
+        delete_query = delete_query.filter(role__slug__in=role_slugs)
+    
+    # Si un scope spécifique est demandé, ne supprimer que les grants de ce scope
+    if scope:
+        delete_query = delete_query.filter(scope=scope)
+    
+    deleted_count, _ = delete_query.delete()
+    
+    # Préparer les grants à créer en bulk
+    grants_to_create = []
+    
+    # Réassigner tous les rôles du groupe (ou uniquement les rôles spécifiés)
+    roles_to_sync = group.roles.filter(slug__in=role_slugs) if role_slugs else group.roles.all()
+    
+    # Récupérer tous les RoleGrants pour tous les rôles en une seule requête
+    role_grants_query = RoleGrant.objects.filter(role__in=roles_to_sync)
+    
+    # Si un scope spécifique est demandé, filtrer uniquement ce scope
+    if scope:
+        role_grants_query = role_grants_query.filter(scope=scope)
+    
+    # Récupérer tous les UserGroups pour ce groupe
     user_groups = UserGroup.objects.filter(group=group).select_related('user')
     
-    stats = {
-        "users_synced": 0,
-        "grants_updated": 0
-    }
-    
-    # Pour chaque utilisateur du groupe
+    # Préparer les grants correspondants, en excluant les grants verrouillés via subquery
     for user_group in user_groups:
-        user = user_group.user
-        
-        # Récupérer les scopes avec des grants verrouillés (locked=True) pour cet utilisateur et ce UserGroup
-        # Ces scopes doivent être exclus de la synchronisation
-        overridden_scopes = set(
-            Grant.objects.filter(
-                user=user,
-                user_group=user_group,
-                locked=True
-            ).values_list('scope', flat=True)
-        )
-        
-        # Supprimer uniquement les grants liés à ce UserGroup qui ne sont pas verrouillés
-        # Les grants avec locked=True sont des grants personnalisés (overridés) et doivent être préservés
-        deleted_count, _ = Grant.objects.filter(
-            user=user,
-            user_group=user_group,
-            locked=False  # Ne supprimer que les grants non verrouillés
-        ).delete()
-        
-        # Préparer les grants à créer en bulk
-        grants_to_create = []
-        
-        # Réassigner tous les rôles du groupe
-        for role in group.roles.all():
-            # Récupérer tous les RoleGrants pour ce rôle
-            role_grants = RoleGrant.objects.filter(role=role)
-            
-            # Préparer les grants correspondants, en excluant les scopes overridés
-            for rg in role_grants:
-                # Ignorer ce scope s'il a un grant personnalisé
-                if rg.scope in overridden_scopes:
-                    continue
-                
-                grants_to_create.append(
-                    Grant(
-                        user=user,
-                        scope=rg.scope,
-                        role=role,
-                        actions=expand_actions(rg.actions),
-                        context=rg.context,
-                        user_group=user_group,
-                    )
+        for rg in role_grants_query:
+            grants_to_create.append(
+                Grant(
+                    user=user_group.user,
+                    scope=rg.scope,
+                    role=rg.role,
+                    actions=expand_actions(rg.actions),
+                    context=rg.context,
+                    user_group=user_group,
                 )
+            )
+    
+    # Créer tous les grants en une seule requête, en excluant ceux qui sont verrouillés
+    # On utilise ignore_conflicts au lieu de update_conflicts pour éviter d'écraser les grants verrouillés
+    if grants_to_create:
+        # Filtrer les grants à créer pour exclure ceux qui correspondent à des grants verrouillés
+        # On compare (user_id, scope, role_id) avec la subquery
+        locked_grant_ids = locked_grants_subquery.values_list('user_id', 'scope', 'role_id')
+        locked_set = set(locked_grant_ids)
         
-        # Créer tous les grants en une seule requête
-        if grants_to_create:
+        # Filtrer les grants à créer
+        filtered_grants = [
+            grant for grant in grants_to_create
+            if (grant.user.id, grant.scope, grant.role.pk) not in locked_set
+        ]
+        
+        if filtered_grants:
             Grant.objects.bulk_create(
-                grants_to_create,
+                filtered_grants,
                 update_conflicts=True,
                 unique_fields=["user", "scope", "role", "user_group"],
                 update_fields=["actions", "context", "updated_at"]
             )
-            stats["grants_updated"] += len(grants_to_create)
-        
-        stats["users_synced"] += 1
     
-    return stats
+    # Compter le nombre d'utilisateurs synchronisés
+    users_synced = user_groups.count()
+    
+    return {
+        "users_synced": users_synced,
+        "grants_updated": len(grants_to_create)
+    }
+
+@transaction.atomic
+def role_sync(role_slug: str, scope: Optional[str] = None) -> dict[str, int]:
+    """
+    Synchronise les grants pour un rôle spécifique après modification des RoleGrants.
+    Met à jour directement les permissions du rôle pour tous les utilisateurs qui ont ce rôle de manière indépendante (non lié à un groupe).
+    
+    Cette fonction doit être appelée après :
+    - Création/modification/suppression d'un RoleGrant pour ce rôle
+    
+    Args:
+        role_slug: Le slug du rôle à synchroniser
+        scope: Optionnel, scope spécifique pour limiter la synchronisation (améliore les performances)
+        
+    Returns:
+        Dictionnaire avec les statistiques:
+        {
+            "grants_updated": nombre de grants mis à jour
+        }
+        
+    Raises:
+        RoleNotFoundException: Si le rôle n'existe pas
+        
+    Example:
+        >>> # Après modification d'un RoleGrant
+        >>> role_sync("editor")
+        {"grants_updated": 12}
+        
+        >>> # Synchroniser uniquement pour un scope spécifique
+        >>> role_sync("editor", scope="articles")
+        {"grants_updated": 3}
+    """
+    try:
+        role = Role.objects.get(slug=role_slug)
+    except Role.DoesNotExist:
+        raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas")
+    
+    # Récupérer tous les RoleGrants pour ce rôle
+    role_grants_query = RoleGrant.objects.filter(role=role)
+    
+    # Si un scope spécifique est demandé, filtrer uniquement ce scope
+    if scope:
+        role_grants_query = role_grants_query.filter(scope=scope)
+    
+    # Récupérer tous les grants non verrouillés pour ce rôle (indépendants)
+    grants_query = Grant.objects.filter(
+        role=role,
+        locked=False,
+        user_group__isnull=True
+    )
+    
+    # Si un scope spécifique est demandé, filtrer uniquement ce scope
+    if scope:
+        grants_query = grants_query.filter(scope=scope)
+    
+    # Créer un mapping scope -> RoleGrant pour accès rapide
+    role_grants_map = {f"{rg.scope}_{rg.role_id}" : rg for rg in role_grants_query}
+    
+    # Mettre à jour les grants existants
+    updated_count = 0
+    
+    for grant in grants_query:
+        # Récupérer le RoleGrant correspondant au scope
+        role_grant = role_grants_map.get(f"{grant.scope}_{grant.role_id}")
+        
+        if role_grant:
+            # Mettre à jour les actions et le contexte directement
+            grant.actions = expand_actions(role_grant.actions)
+            grant.context = role_grant.context
+            grant.save(update_fields=["actions", "context", "updated_at"])
+            updated_count += 1
+    
+    return {
+        "grants_updated": updated_count
+    }
 
 
 def check(
@@ -336,7 +456,7 @@ def check(
     """
     Vérifie si un utilisateur possède les permissions requises pour un scope donné.
     Utilise l'opérateur PostgreSQL @> (contains) pour vérifier que toutes les actions
-    requises sont présentes dans le grant.
+    requises sont présentes dans le grant."updated_at"
     
     Args:
         user: L'utilisateur dont on vérifie les permissions

@@ -16,9 +16,9 @@ from .models import (
     UserGroup
 )
 from .utils import (
-    assign_role, revoke_role,
+    assign_role, group_sync, revoke_role,
     assign_group, revoke_group,
-    override_grant
+    override_grant, role_sync
 )
 from .exceptions import (
     RoleNotFoundException,
@@ -261,7 +261,7 @@ class PermissionService(BaseService):
         self,
         user: AbstractBaseUser,
         scope: str,
-        remove_actions: list[str]
+        actions: list[str]
     ) -> dict[str, Any]:
         """
         Modifie un grant en retirant certaines actions.
@@ -269,7 +269,7 @@ class PermissionService(BaseService):
         Args:
             user: L'utilisateur dont on modifie le grant
             scope: Le scope du grant à modifier
-            remove_actions: Liste des actions à retirer
+            actions: Liste des actions à definir
             
         Returns:
             Dictionnaire avec les informations de la modification
@@ -283,17 +283,17 @@ class PermissionService(BaseService):
                     detail=f"Aucun grant trouvé pour l'utilisateur sur le scope '{scope}'"
                 )
             
-            override_grant(user, scope, remove_actions)
+            override_grant(user, scope, actions)
             
             # Vérifier si le grant existe toujours (peut avoir été supprimé)
             grant_still_exists = Grant.objects.filter(user=user, scope=scope).exists()
             
-            logger.info("grant_modified", user_id=user.pk, scope=scope, removed_actions=remove_actions, grant_deleted=not grant_still_exists, grant_exists=grant_still_exists)
+            logger.info("grant_modified", user_id=user.pk, scope=scope, actions=actions, grant_deleted=not grant_still_exists, grant_exists=grant_still_exists)
             
             return {
                 "user_id": user.pk,
                 "scope": scope,
-                "removed_actions": remove_actions,
+                "actions": actions,
                 "grant_deleted": not grant_still_exists,
                 "message": "Grant modifié avec succès" if grant_still_exists else "Grant supprimé (plus d'actions)"
             }
@@ -445,6 +445,7 @@ class PermissionService(BaseService):
     def update_group(self, group_slug, data: dict, roles: list[str]):
         try:
             group = self.get_group(group_slug)
+            old_roles = set(group.roles.values_list('slug', flat=True))
             
             # Mise à jour des champs simples
             for field, value in data.items():
@@ -452,10 +453,22 @@ class PermissionService(BaseService):
             
             # Mise à jour des rôles si fournis
             if roles:
-                roles = Role.objects.filter(slug__in=roles)
-                group.roles.set(roles)
+                new_roles = set(roles)
+                removed_roles = old_roles - new_roles
+                
+                if removed_roles: # revoke grants from this group
+                    Grant.objects.filter(
+                        user_group__group=group,
+                        role__slug__in=removed_roles
+                    ).delete()
+                
+                if new_roles: # grant roles to this group
+                    roles = Role.objects.filter(slug__in=new_roles)
+                    group.roles.set(roles)
             
             group.save()
+            group_sync(group_slug) # update user grants
+
             return group
         except Exception as exc:
             self.exception_handler(exc, self.logger)
@@ -579,6 +592,7 @@ class PermissionService(BaseService):
         except Exception as exc:
             self.exception_handler(exc, self.logger)
 
+    @transaction.atomic
     def update_role_grant(
         self,
         grant_id: int,
@@ -599,16 +613,32 @@ class PermissionService(BaseService):
         """
         try:
             role_grant = RoleGrant.objects.get(pk=grant_id)
+            update = False
             
-            if grant_data.actions is not None:
-                role_grant.actions = grant_data.actions
+            if grant_data.actions is not None and grant_data.actions:
+                old_actions = set(role_grant.actions)
+                new_actions = set(grant_data.actions)
+                removed_actions = old_actions - new_actions
+                added_actions = new_actions - old_actions
+                
+                if added_actions or removed_actions:
+                    role_grant.actions = grant_data.actions
+                    update = True
             
             if grant_data.context is not None:
                 role_grant.context = grant_data.context
+                update = True
             
-            role_grant.save()
-            
-            logger.info("role_grant_updated", grant_id=grant_id)
+            if update:
+                role_grant.save(update_fields=["actions", "context"])
+                groups = Group.objects.filter(roles=role_grant.role)
+
+                for group in groups:
+                    group_sync(group.slug, role_slugs=[role_grant.role.slug], scope=role_grant.scope)
+
+                role_sync(role_grant.role.slug, scope=role_grant.scope)
+
+                logger.info("role_grant_updated", grant_id=grant_id)
             
             return role_grant
             

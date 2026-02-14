@@ -22,6 +22,9 @@ def validate_actions_list(actions: list[str]) -> list[str]:
     Raises:
         ValueError: Si des actions invalides sont présentes
     """
+    if not actions:
+        raise ValueError("Les actions ne peuvent pas être vides")
+    
     invalid_actions = [a for a in actions if a not in ACTIONS]
     if invalid_actions:
         raise ValueError(
@@ -325,21 +328,6 @@ class RevokeGroupSchema(Schema):
     """
     user_id: UUID
     group: str
-
-
-class OverrideGrantSchema(Schema):
-    """
-    Schéma pour modifier un grant en retirant des actions.
-    """
-    user_id: UUID
-    scope: str
-    remove_actions: list[str]
-    
-    @field_validator('remove_actions')
-    @classmethod
-    def validate_actions(cls, v: list[str]) -> list[str]:
-        """Valide que toutes les actions sont valides."""
-        return validate_actions_list(v)
 
 
 class GroupSyncResponseSchema(Schema):

@@ -17,6 +17,7 @@ from oxutils.permissions.utils import (
     check,
     str_check,
     group_sync,
+    role_sync,
     any_action_check,
     any_permission_check,
     parse_permission,
@@ -355,28 +356,90 @@ class TestGroupSync:
         grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
         assert 'd' in grant.actions
 
-    def test_group_sync_preserves_overrides(self, test_user, staff_group, editor_role_grant, admin_user):
+    def test_group_sync_preserves_overrides(self, test_user, staff_group, editor_role_grant, editor_role, admin_user):
         """Test group sync preserves custom overridden grants."""
         assign_group(test_user, 'staff', by=admin_user)
         
         # Verify grant exists before override
         assert Grant.objects.filter(user=test_user, scope='articles').exists()
         
-        # Override a grant
-        override_grant(test_user, 'articles', actions=['r'])
+        # Override a grant with specific role
+        override_grant(test_user, 'articles', actions=['r'], role='editor')
         
-        # Verify override worked
-        grant_after_override = Grant.objects.get(user=test_user, scope='articles')
+        # Verify override worked - get the locked grant
+        grant_after_override = Grant.objects.get(user=test_user, scope='articles', role=editor_role, locked=True)
         assert grant_after_override.locked is True  # Locked grant
         
         # Sync group
         stats = group_sync('staff')
         
         # Check override was preserved (locked grants should not be deleted)
-        grant_after_sync = Grant.objects.get(user=test_user, scope='articles')
+        grant_after_sync = Grant.objects.get(user=test_user, scope='articles', role=editor_role, locked=True)
         assert grant_after_sync.locked is True  # Still locked
         assert 'r' in grant_after_sync.actions
         assert 'w' not in grant_after_sync.actions
+
+    def test_group_sync_with_role_filter(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
+        """Test group sync with role_slugs parameter to sync specific roles only."""
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        # Modify editor role grant
+        editor_role_grant.actions = ['r', 'w', 'd']
+        editor_role_grant.save()
+        
+        # Sync only editor role
+        stats = group_sync('staff', role_slugs=['editor'])
+        
+        assert stats['users_synced'] == 1
+        assert stats['grants_updated'] > 0
+        
+        # Check editor grant was updated
+        editor_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
+        assert 'd' in editor_grant.actions
+
+    def test_group_sync_with_scope_filter(self, test_user, staff_group, editor_role_grant, admin_user):
+        """Test group sync with scope parameter for performance optimization."""
+        # Create another role grant for different scope
+        RoleGrant.objects.create(
+            role=editor_role_grant.role,
+            scope='comments',
+            actions=['r'],
+            context={}
+        )
+        
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        # Modify editor role grant for articles
+        editor_role_grant.actions = ['r', 'w', 'd']
+        editor_role_grant.save()
+        
+        # Sync only articles scope
+        stats = group_sync('staff', scope='articles')
+        
+        assert stats['users_synced'] == 1
+        assert stats['grants_updated'] > 0
+        
+        # Check articles grant was updated
+        articles_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
+        assert 'd' in articles_grant.actions
+
+    def test_group_sync_with_role_and_scope_filter(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
+        """Test group sync with both role_slugs and scope parameters."""
+        assign_group(test_user, 'staff', by=admin_user)
+        
+        # Modify editor role grant
+        editor_role_grant.actions = ['r', 'w', 'd']
+        editor_role_grant.save()
+        
+        # Sync only editor role for articles scope
+        stats = group_sync('staff', role_slugs=['editor'], scope='articles')
+        
+        assert stats['users_synced'] == 1
+        assert stats['grants_updated'] > 0
+        
+        # Check editor grant was updated
+        editor_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
+        assert 'd' in editor_grant.actions
 
 
 class TestScopePermission:
@@ -519,7 +582,6 @@ class TestModels:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         # Creating another with same role, scope, group should violate constraint
@@ -528,7 +590,6 @@ class TestModels:
         assert RoleGrant.objects.filter(
             role=editor_role,
             scope='articles',
-            group=None
         ).count() == 1
 
     def test_grant_unique_constraint(self, db_setup, test_user, editor_role):
@@ -549,58 +610,6 @@ class TestModels:
             scope='articles',
             user_group=None
         ).count() == 1
-
-
-class TestGroupSpecificRoleGrants:
-    """Test group-specific RoleGrants."""
-
-    def test_generic_role_grant(self, test_user, editor_role, admin_user):
-        """Test generic RoleGrant applies to direct role assignment."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-            group=None  # Generic
-        )
-        
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert check(test_user, 'articles', ['r']) is True
-        assert check(test_user, 'articles', ['w']) is True
-
-    def test_group_specific_role_grant(self, test_user, editor_role, admin_user):
-        """Test group-specific RoleGrant applies only via group."""
-        premium_group = Group.objects.create(slug='premium', name='Premium')
-        premium_group.roles.add(editor_role)
-        
-        # Generic RoleGrant
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-            group=None
-        )
-        
-        # Group-specific RoleGrant with more permissions
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w', 'd'],
-            group=premium_group
-        )
-        
-        # Direct assignment gets generic permissions
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assert check(test_user, 'articles', ['d']) is False
-        
-        # Revoke and assign via group
-        revoke_role(test_user, 'editor', 'articles')
-        assign_group(test_user, 'premium', by=admin_user)
-        
-        # Check that user has permissions from group
-        # Note: group-specific grants may not be fully implemented yet
-        grants = Grant.objects.filter(user=test_user, scope='articles')
-        assert grants.exists()
 
 
 class TestParsePermission:
@@ -657,7 +666,6 @@ class TestAnyActionCheck:
             role=editor_role,
             scope='articles',
             actions=['r'],  # Only read permission
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -674,7 +682,6 @@ class TestAnyActionCheck:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -694,7 +701,6 @@ class TestAnyActionCheck:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -704,11 +710,12 @@ class TestAnyActionCheck:
         assert any_action_check(test_user, 'articles', ['d'], role='editor') is False
         assert any_action_check(test_user, 'articles', ['r'], role='nonexistent') is False
 
-    def test_any_action_check_with_context(self, test_user):
+    def test_any_action_check_with_context(self, test_user, editor_role):
         """Test any_action_check with context."""
         Grant.objects.create(
             user=test_user,
             scope='articles',
+            role=editor_role,
             actions=['r', 'w'],
             context={'tenant_id': 123}
         )
@@ -729,7 +736,6 @@ class TestAnyPermissionCheck:
             role=editor_role,
             scope='articles',
             actions=['r'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -746,13 +752,11 @@ class TestAnyPermissionCheck:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         RoleGrant.objects.create(
             role=editor_role,
             scope='invoices',
             actions=['r'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -772,7 +776,6 @@ class TestAnyPermissionCheck:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -791,17 +794,19 @@ class TestAnyPermissionCheck:
             'invoices:w:admin'
         ) is False
 
-    def test_any_permission_check_with_context(self, test_user):
+    def test_any_permission_check_with_context(self, test_user, editor_role):
         """Test any_permission_check with context in permission strings."""
         Grant.objects.create(
             user=test_user,
             scope='articles',
+            role=editor_role,
             actions=['r'],
             context={'tenant_id': 123}
         )
         Grant.objects.create(
             user=test_user,
             scope='invoices',
+            role=editor_role,
             actions=['w'],
             context={'tenant_id': 456}
         )
@@ -834,7 +839,6 @@ class TestScopeAnyActionPermission:
             role=editor_role,
             scope='articles',
             actions=['r'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -857,7 +861,6 @@ class TestScopeAnyActionPermission:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -871,11 +874,12 @@ class TestScopeAnyActionPermission:
         permission = ScopeAnyActionPermission('articles:rwd:nonexistent')
         assert permission.has_permission(request, None) is False
 
-    def test_scope_any_action_permission_with_context(self, test_user):
+    def test_scope_any_action_permission_with_context(self, test_user, editor_role):
         """Test ScopeAnyActionPermission with context."""
         Grant.objects.create(
             user=test_user,
             scope='articles',
+            role=editor_role,
             actions=['r', 'w'],
             context={'tenant_id': 123}
         )
@@ -904,7 +908,6 @@ class TestScopeAnyPermission:
             role=editor_role,
             scope='articles',
             actions=['r'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -926,13 +929,11 @@ class TestScopeAnyPermission:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         RoleGrant.objects.create(
             role=editor_role,
             scope='invoices',
             actions=['r'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -950,7 +951,6 @@ class TestScopeAnyPermission:
             role=editor_role,
             scope='articles',
             actions=['r', 'w'],
-            group=None
         )
         
         assign_role(test_user, 'editor', 'articles', by=admin_user)
@@ -964,13 +964,21 @@ class TestScopeAnyPermission:
         permission = ScopeAnyPermission('articles:r:nonexistent', 'invoices:w:admin')
         assert permission.has_permission(request, None) is False
 
-    def test_scope_any_permission_with_context(self, test_user):
+    def test_scope_any_permission_with_context(self, test_user, editor_role):
         """Test ScopeAnyPermission with context."""
         Grant.objects.create(
             user=test_user,
             scope='articles',
+            role=editor_role,
             actions=['r'],
             context={'tenant_id': 123}
+        )
+        Grant.objects.create(
+            user=test_user,
+            scope='invoices',
+            role=editor_role,
+            actions=['w'],
+            context={'tenant_id': 456}
         )
         
         request = Mock()
