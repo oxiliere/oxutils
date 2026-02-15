@@ -5,7 +5,13 @@ Example configuration in settings.py:
 
     ACCESS_MANAGER_SCOPE = "access"
     ACCESS_MANAGER_GROUP = "manager"  # or None
+    ACCESS_MANAGER_ROLE = "admin"     # or None
     ACCESS_MANAGER_CONTEXT = {}
+
+    ACCESS_APPLICATIONS = [
+        "crm",
+        "oxutils"
+    ]
 
     CACHE_CHECK_PERMISSION = False
     
@@ -34,11 +40,15 @@ def check_permission_settings(app_configs, **kwargs):
     Checks:
     - ACCESS_MANAGER_SCOPE is defined
     - ACCESS_MANAGER_GROUP is defined (can be None)
+    - ACCESS_MANAGER_ROLE is defined (can be None)
     - ACCESS_MANAGER_CONTEXT is defined
     - ACCESS_SCOPES is defined
     - PERMISSION_PRESET is defined
+    - ACCESS_APPLICATIONS is a list (if defined)
     - ACCESS_MANAGER_SCOPE exists in ACCESS_SCOPES
     - ACCESS_MANAGER_GROUP exists in PERMISSION_PRESET groups (if not None)
+    - ACCESS_MANAGER_ROLE exists in PERMISSION_PRESET roles (if not None)
+    - PERMISSION_PRESET roles/groups with 'app' have their app in ACCESS_APPLICATIONS
     """
     errors = []
     
@@ -59,6 +69,16 @@ def check_permission_settings(app_configs, **kwargs):
                 'ACCESS_MANAGER_GROUP is not defined',
                 hint='Add ACCESS_MANAGER_GROUP = "manager" or None to your settings',
                 id='permissions.E002',
+            )
+        )
+    
+    # Check ACCESS_MANAGER_ROLE
+    if not hasattr(settings, 'ACCESS_MANAGER_ROLE'):
+        errors.append(
+            Error(
+                'ACCESS_MANAGER_ROLE is not defined',
+                hint='Add ACCESS_MANAGER_ROLE = "admin" or None to your settings',
+                id='permissions.E013',
             )
         )
     
@@ -124,6 +144,19 @@ def check_permission_settings(app_configs, **kwargs):
                         )
                     )
     
+    # Check ACCESS_APPLICATIONS (optional, but must be a list if defined)
+    has_applications = hasattr(settings, 'ACCESS_APPLICATIONS')
+    if has_applications:
+        if not isinstance(settings.ACCESS_APPLICATIONS, list):
+            errors.append(
+                Error(
+                    'ACCESS_APPLICATIONS must be a list',
+                    hint='Set ACCESS_APPLICATIONS = ["crm", "accounting", ...]',
+                    id='permissions.E015',
+                )
+            )
+            has_applications = False
+    
     # Cross-validation: ACCESS_MANAGER_SCOPE in ACCESS_SCOPES
     if (hasattr(settings, 'ACCESS_MANAGER_SCOPE') and 
         hasattr(settings, 'ACCESS_SCOPES') and 
@@ -153,6 +186,79 @@ def check_permission_settings(app_configs, **kwargs):
                     f'ACCESS_MANAGER_GROUP "{settings.ACCESS_MANAGER_GROUP}" is not in PERMISSION_PRESET groups',
                     hint=f'Add a group with slug "{settings.ACCESS_MANAGER_GROUP}" to PERMISSION_PRESET["group"]',
                     id='permissions.E009',
+                )
+            )
+    
+    # Cross-validation: ACCESS_MANAGER_ROLE in PERMISSION_PRESET roles
+    if (hasattr(settings, 'ACCESS_MANAGER_ROLE') and 
+        settings.ACCESS_MANAGER_ROLE is not None and
+        hasattr(settings, 'PERMISSION_PRESET') and
+        isinstance(settings.PERMISSION_PRESET, dict) and
+        'roles' in settings.PERMISSION_PRESET):
+        
+        role_slugs = [r.get('slug') for r in settings.PERMISSION_PRESET.get('roles', [])]
+        
+        if settings.ACCESS_MANAGER_ROLE not in role_slugs:
+            errors.append(
+                Error(
+                    f'ACCESS_MANAGER_ROLE "{settings.ACCESS_MANAGER_ROLE}" is not in PERMISSION_PRESET roles',
+                    hint=f'Add a role with slug "{settings.ACCESS_MANAGER_ROLE}" to PERMISSION_PRESET["roles"]',
+                    id='permissions.E014',
+                )
+            )
+    
+    # Cross-validation: PERMISSION_PRESET roles/groups app values in ACCESS_APPLICATIONS
+    if (has_applications and
+        hasattr(settings, 'PERMISSION_PRESET') and
+        isinstance(settings.PERMISSION_PRESET, dict)):
+        
+        apps_list = settings.ACCESS_APPLICATIONS
+        
+        for role_data in settings.PERMISSION_PRESET.get('roles', []):
+            app = role_data.get('app')
+            if app and app not in apps_list:
+                errors.append(
+                    Error(
+                        f'Role "{role_data.get("slug")}" has app "{app}" which is not in ACCESS_APPLICATIONS',
+                        hint=f'Add "{app}" to ACCESS_APPLICATIONS or remove "app" from this role',
+                        id='permissions.E016',
+                    )
+                )
+        
+        for group_data in settings.PERMISSION_PRESET.get('group', []):
+            app = group_data.get('app')
+            if app and app not in apps_list:
+                errors.append(
+                    Error(
+                        f'Group "{group_data.get("slug")}" has app "{app}" which is not in ACCESS_APPLICATIONS',
+                        hint=f'Add "{app}" to ACCESS_APPLICATIONS or remove "app" from this group',
+                        id='permissions.E017',
+                    )
+                )
+    
+    # Cross-validation: roles/groups with app require ACCESS_APPLICATIONS
+    if (not has_applications and
+        hasattr(settings, 'PERMISSION_PRESET') and
+        isinstance(settings.PERMISSION_PRESET, dict)):
+        
+        has_app_attr = False
+        for role_data in settings.PERMISSION_PRESET.get('roles', []):
+            if role_data.get('app'):
+                has_app_attr = True
+                break
+        
+        if not has_app_attr:
+            for group_data in settings.PERMISSION_PRESET.get('group', []):
+                if group_data.get('app'):
+                    has_app_attr = True
+                    break
+        
+        if has_app_attr:
+            errors.append(
+                Error(
+                    'ACCESS_APPLICATIONS is required when roles or groups define an "app" attribute',
+                    hint='Add ACCESS_APPLICATIONS = ["crm", "oxutils", ...] to your settings',
+                    id='permissions.E018',
                 )
             )
     

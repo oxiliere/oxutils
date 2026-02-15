@@ -1,4 +1,5 @@
 from typing import List, Optional
+from uuid import UUID
 from django.conf import settings
 from django.http import HttpRequest
 from ninja_extra import (
@@ -8,15 +9,11 @@ from ninja_extra import (
     http_post,
     http_put,
     http_delete,
-    paginate,
 )
 from ninja_extra.permissions import IsAuthenticated
-from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema
 from . import schemas
-from .models import Role, Group, RoleGrant, Grant
 from .services import PermissionService
 from .perms import access_manager
-from oxutils.exceptions import NotFoundException, ValidationException
 
 
 
@@ -37,20 +34,12 @@ class PermissionController(ControllerBase):
     def list_scopes(self):
         return getattr(settings, 'ACCESS_SCOPES', [])
 
-    @http_get("/roles", response=PaginatedResponseSchema[schemas.RoleSchema])
-    @paginate(PageNumberPaginationExtra, page_size=20)
+    @http_get("/roles", response=List[schemas.RoleSchema])
     def list_roles(self):
         """
         Liste tous les rôles.
         """
         return self.service.get_roles()
-
-    @http_get("/roles/{role_slug}", response=schemas.RoleSchema)
-    def get_role(self, role_slug: str):
-        """
-        Récupère un rôle par son slug.
-        """
-        return self.service.get_role(role_slug)
 
     # Groupes
     @http_post(
@@ -68,14 +57,13 @@ class PermissionController(ControllerBase):
 
     @http_get(
         "/groups", 
-        response=PaginatedResponseSchema[schemas.GroupSchema],
+        response=List[schemas.GroupSchema],
     )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_groups(self):
+    def list_groups(self, app: Optional[str] = None):
         """
         Liste tous les groupes de rôles.
         """
-        return Group.objects.all()
+        return self.service.get_groups(app)
 
     @http_get(
         "/groups/{group_slug}", 
@@ -85,10 +73,7 @@ class PermissionController(ControllerBase):
         """
         Récupère un groupe par son slug.
         """
-        try:
-            return Group.objects.get(slug=group_slug)
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
+        return self.service.get_group(group_slug)
 
     @http_put(
         "/groups/{group_slug}", 
@@ -101,29 +86,16 @@ class PermissionController(ControllerBase):
         """
         Met à jour un groupe existant.
         """
-        try:
-            group = Group.objects.get(slug=group_slug)
-            
-            # Mise à jour des champs simples
-            for field, value in group_data.dict(exclude_unset=True, exclude={"roles"}).items():
-                setattr(group, field, value)
-            
-            # Mise à jour des rôles si fournis
-            if group_data.roles is not None:
-                roles = Role.objects.filter(slug__in=group_data.roles)
-                group.roles.set(roles)
-            
-            group.save()
-            return group
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
-        except Exception as e:
-            raise ValidationException(str(e))
+        return self.service.update_group(
+            group_slug,
+            group_data.dict(exclude_unset=True, exclude={"roles"}),
+            group_data.roles
+        )
 
     @http_delete(
         "/groups/{group_slug}", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('d')
@@ -133,14 +105,23 @@ class PermissionController(ControllerBase):
         """
         Supprime un groupe.
         """
-        try:
-            group = Group.objects.get(slug=group_slug)
-            group.delete()
-            return None
-        except Group.DoesNotExist:
-            raise NotFoundException("Groupe non trouvé")
+        self.service.delete_group(group_slug)
+        return 204, None
 
-    # Rôles des utilisateurs
+    @http_get(
+        "/groups/{group_slug}/members",
+        response=List[schemas.GroupMemberSchema],
+        permissions=[
+            IsAuthenticated & access_manager('r')
+        ]
+    )
+    def get_group_members(self, group_slug: str):
+        """
+        Récupère les membres d'un groupe.
+        """
+        return self.service.get_group_members(group_slug)
+
+    # Rôles des utilisateurs    
     @http_post(
         "/users/assign-role",
         response=schemas.RoleSchema,
@@ -155,13 +136,14 @@ class PermissionController(ControllerBase):
         return self.service.assign_role_to_user(
             user_id=data.user_id,
             role_slug=data.role,
+            scope=data.scope,
             by_user=request.user if request.user.is_authenticated else None
         )
 
     @http_post(
         "/users/revoke-role", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('rw')
@@ -173,7 +155,30 @@ class PermissionController(ControllerBase):
         """
         self.service.revoke_role_from_user(
             user_id=data.user_id,
-            role_slug=data.role
+            role_slug=data.role,
+            scope=data.scope
+        )
+        return None
+
+    @http_post(
+        "/users/override-grant",
+        response={
+            204: None
+        },
+        permissions=[
+            IsAuthenticated & access_manager('rw')
+        ]
+    )
+    def override_grant_for_user(self, data: schemas.OverrideGrantSchema):
+        """
+        Modifie un grant utilisateur en définissant de nouvelles actions.
+        Si actions est vide, le grant est supprimé.
+        """
+        self.service.override_grant_for_user(
+            user_id=data.user_id,
+            scope=data.scope,
+            actions=data.actions,
+            role=data.role
         )
         return None
 
@@ -197,7 +202,7 @@ class PermissionController(ControllerBase):
     @http_post(
         "/users/revoke-group", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('rw')
@@ -213,49 +218,31 @@ class PermissionController(ControllerBase):
         )
         return None
 
-    @http_post(
-        "/groups/{group_slug}/sync", 
-        response=schemas.GroupSyncResponseSchema,
+    @http_get(
+        "/users/{user_id}/grants",
+        response=List[schemas.GrantSchema],
         permissions=[
-            IsAuthenticated & access_manager('rw')
+            IsAuthenticated & access_manager('r')
         ]
     )
-    def sync_group(self, group_slug: str):
+    def get_user_grants(self, user_id: UUID, scope: Optional[str] = None, app: Optional[str] = None):
         """
-        Synchronise les grants de tous les utilisateurs d'un groupe.
-        À appeler après modification des RoleGrants ou des rôles du groupe.
+        Récupère tous les grants d'un utilisateur.
         """
-        return self.service.sync_group(group_slug)
-
-    # Grants
-    @http_post(
-        "/grants", 
-        response=schemas.GrantSchema,
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
-    )
-    def create_grant(self, grant_data: schemas.GrantCreateSchema):
-        """
-        Crée une nouvelle permission personnalisée pour un utilisateur.
-        """
-        return self.service.create_grant(grant_data)
+        return self.service.get_user_grants(user_id=user_id, scope=scope, app=app)
 
     @http_get(
-        "/grants", 
-        response=PaginatedResponseSchema[schemas.GrantSchema],
+        "/users/{user_id}/groups",
+        response=List[schemas.GroupSchema],
+        permissions=[
+            IsAuthenticated & access_manager('r')
+        ]
     )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_grants(self, user_id: Optional[int] = None, role: Optional[str] = None):
+    def get_user_groups(self, user_id: UUID):
         """
-        Liste les grants, avec filtrage optionnel par utilisateur et/ou rôle.
+        Récupère tous les groupes d'un utilisateur.
         """
-        queryset = Grant.objects.all()
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
-        if role:
-            queryset = queryset.filter(role__slug=role)
-        return queryset
+        return self.service.get_user_groups(user_id=user_id)
 
     @http_put(
         "/grants/{grant_id}", 
@@ -269,22 +256,6 @@ class PermissionController(ControllerBase):
         Met à jour une permission personnalisée.
         """
         return self.service.update_grant(grant_id, grant_data)
-
-    @http_delete(
-        "/grants/{grant_id}",
-        response={
-            "204": None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('d')
-        ]
-    )
-    def delete_grant(self, grant_id: int):
-        """
-        Supprime une permission personnalisée.
-        """
-        self.service.delete_grant(grant_id)
-        return None
 
     # Role Grants
     @http_post(
@@ -302,17 +273,13 @@ class PermissionController(ControllerBase):
 
     @http_get(
         "/role-grants", 
-        response=PaginatedResponseSchema[schemas.RoleGrantSchema],
+        response=List[schemas.RoleGrantSchema],
     )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_role_grants(self, role: Optional[str] = None):
+    def list_role_grants(self, app: Optional[str] = None):
         """
-        Liste les permissions de rôles, avec filtrage optionnel par rôle.
+        Liste les permissions de rôles, avec filtrage optionnel par application.
         """
-        queryset = RoleGrant.objects.select_related('role').all()
-        if role:
-            queryset = queryset.filter(role__slug=role)
-        return queryset
+        return self.service.get_role_grants(app)
 
     @http_put(
         "/role-grants/{grant_id}", 
@@ -330,7 +297,7 @@ class PermissionController(ControllerBase):
     @http_delete(
         "/role-grants/{grant_id}/", 
         response={
-            "204": None
+            204: None
         },
         permissions=[
             IsAuthenticated & access_manager('d')

@@ -45,6 +45,7 @@ class TenantOwnerSchema(Schema):
 
 
 class UserSchema(Schema):
+    id: UUID
     oxi_id: UUID
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -53,11 +54,54 @@ class UserSchema(Schema):
     photo: Optional[str] = None
 
 
-class TenantUser(Schema):
+class TenantUserListSchema(Schema):
     user: UserSchema
     is_owner: bool
     is_admin: bool
     status: str
+    is_active: bool
+
+
+class TenantUserDetailSchema(Schema):
+    user: UserSchema
+    is_owner: bool
+    is_admin: bool
+    status: str
+
+class UpdateTenantUserSchema(Schema):
+    is_admin: Optional[bool] = None
+    is_owner: Optional[bool] = None
+    status: Optional[str] = None
+
+
+class SetAdminSchema(Schema):
+    is_admin: bool
+
+
+class SetOwnerSchema(Schema):
+    is_owner: bool
+
+
+def get_tenant_user_list_schema() -> type[Schema]:
+    if hasattr(settings, 'OX_TENANT_USER_LIST_SCHEMA'):
+        try:
+            return import_string(settings.OX_TENANT_USER_LIST_SCHEMA)
+        except ImportError as e:
+            raise ImproperlyConfigured(
+                f"Error: OX_TENANT_USER_LIST_SCHEMA import error: {settings.OX_TENANT_USER_LIST_SCHEMA}, please check your settings"
+            ) from e
+    return TenantUserListSchema
+
+
+def get_tenant_user_detail_schema() -> type[Schema]:
+    if hasattr(settings, 'OX_TENANT_USER_DETAIL_SCHEMA'):
+        try:
+            return import_string(settings.OX_TENANT_USER_DETAIL_SCHEMA)
+        except ImportError as e:
+            raise ImproperlyConfigured(
+                f"Error: OX_TENANT_USER_DETAIL_SCHEMA import error: {settings.OX_TENANT_USER_DETAIL_SCHEMA}, please check your settings"
+            ) from e
+    return TenantUserDetailSchema
 
 
 class CreateTenantSchema(Schema):

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django_tenants.utils import (
     get_tenant_model,
     get_tenant_domain_model,
+    tenant_context,
 )
 from oxutils.oxiliere.utils import (
     oxid_to_schema_name,
@@ -16,6 +17,7 @@ from oxutils.oxiliere.constants import (
     OXI_SYSTEM_DOMAIN,
     OXI_SYSTEM_OWNER_EMAIL
 )
+from oxutils.permissions.utils import load_preset
 from oxutils.oxiliere.authorization import grant_manager_access_to_owners
 
 
@@ -73,9 +75,11 @@ class Command(BaseCommand):
             superuser = UserModel.objects.create_superuser(
                 email=owner_email,
                 oxi_id=owner_oxi_id,
+                id=owner_oxi_id,        # for middleware checking when we are using self authentication in development
                 first_name='System',
                 last_name='Admin'
             )
+            
             self.stdout.write(self.style.SUCCESS(f'✓ Superuser créé: {superuser.email}'))
         
         # Lier le superuser au tenant système
@@ -88,6 +92,11 @@ class Command(BaseCommand):
                 'is_admin': True,
             }
         )
+
+        with tenant_context(tenant):
+            stats = load_preset()
+            print(stats)
+
         if created:
             self.stdout.write(self.style.SUCCESS(f'✓ Superuser lié au tenant système'))
             try:

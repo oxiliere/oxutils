@@ -7,7 +7,7 @@
 - Role-based permissions with hierarchical actions
 - Group management for bulk role assignment
 - Custom grant overrides per user
-- RoleGrant templates (generic or group-specific)
+- RoleGrant templates for role permissions
 - Automatic synchronization after changes
 - Bulk operations for performance
 - Full traceability with `created_by` tracking
@@ -48,12 +48,11 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
 **Group**: Collection of roles for easier assignment (e.g., `staff`)
 
 **RoleGrant**: Permission template for a role on a scope
-- Can be **generic** (applies to all users with the role)
-- Can be **group-specific** (applies only when role is assigned via that group)
+- Applies to all users with the role
 
 **Grant**: Effective user permission on a scope
-- **Inherited**: `role != None` (from RoleGrant)
-- **Custom**: `role = None` (after override)
+- **Inherited**: `locked = False` (from RoleGrant, can be modified by group_sync)
+- **Custom**: `locked = True` (after override, protected from group_sync)
 
 **UserGroup**: Links user to group for traceability
 
@@ -76,7 +75,8 @@ Example: Granting `['w']` automatically gives `['r', 'w']`
 
 # Access manager configuration
 ACCESS_MANAGER_SCOPE = "access"      # Scope for access management endpoints
-ACCESS_MANAGER_GROUP = "manager"     # Group filter (or None)
+ACCESS_MANAGER_GROUP = "manager"     # Group for UserGroup assignment in authorization (or None)
+ACCESS_MANAGER_ROLE = "admin"        # Role for permission check filtering (or None)
 ACCESS_MANAGER_CONTEXT = {}          # Additional context dict
 
 # List of valid scopes in your application
@@ -127,20 +127,12 @@ PERMISSION_PRESET = {
             "scope": "users",
             "actions": ["r", "w", "d"],
             "context": {}
-            # No group = generic RoleGrant
         },
         {
             "role": "editor",
             "scope": "articles",
             "actions": ["r", "w"],
             "context": {}
-        },
-        {
-            "role": "editor",
-            "scope": "articles",
-            "actions": ["r", "w", "d"],  # Extended permissions
-            "context": {},
-            "group": "premium-staff"  # Group-specific RoleGrant
         }
     ]
 }
@@ -224,9 +216,9 @@ if check(user, 'articles', ['w'], tenant_id=123):
     # User can write articles for tenant 123
     pass
 
-# Check with group filter
-if check(user, 'articles', ['w'], group='staff'):
-    # User can write articles via staff group
+# Check with role filter
+if check(user, 'articles', ['w'], role='editor'):
+    # User can write articles via editor role
     pass
 
 # String-based check (convenient format)
@@ -234,9 +226,9 @@ if str_check(user, 'articles:r'):
     # User can read articles
     pass
 
-# String check with group
-if str_check(user, 'articles:w:staff'):
-    # User can write articles via staff group
+# String check with role
+if str_check(user, 'articles:w:editor'):
+    # User can write articles via editor role
     pass
 
 # String check with context (query params)
@@ -244,9 +236,9 @@ if str_check(user, 'articles:w?tenant_id=123&status=published'):
     # User can write published articles for tenant 123
     pass
 
-# String check with group and context
-if str_check(user, 'articles:w:staff?tenant_id=123'):
-    # User can write articles for tenant 123 via staff group
+# String check with role and context
+if str_check(user, 'articles:w:editor?tenant_id=123'):
+    # User can write articles for tenant 123 via editor role
     pass
 ```
 
@@ -262,9 +254,9 @@ if any_action_check(user, 'articles', ['r', 'w', 'd']):
     # User has read OR write OR delete permission
     pass
 
-# With group filter
-if any_action_check(user, 'articles', ['w', 'd'], group='staff'):
-    # User has write OR delete via staff group
+# With role filter
+if any_action_check(user, 'articles', ['w', 'd'], role='editor'):
+    # User has write OR delete via editor role
     pass
 
 # With context
@@ -276,7 +268,7 @@ if any_action_check(user, 'articles', ['r', 'w'], tenant_id=123):
 if any_permission_check(
     user,
     'articles:r',              # Can read articles
-    'articles:w:staff',        # OR can write as staff
+    'articles:w:editor',       # OR can write as editor
     'invoices:d:admin'         # OR can delete invoices as admin
 ):
     # User has at least one of these permissions
@@ -286,7 +278,7 @@ if any_permission_check(
 if any_permission_check(
     user,
     'reports:r?department=finance',
-    'reports:w:manager',
+    'reports:w:admin',
     'analytics:r'
 ):
     # User can access if they have ANY of these permissions
@@ -313,7 +305,7 @@ class ArticleController:
         # Only users with write permission on articles can access
         pass
 
-# With group-specific permission
+# With role-specific permission
 @api_controller('/admin', permissions=[ScopePermission('users:w:admin')])
 class AdminController:
     pass
@@ -352,12 +344,12 @@ class ArticleController:
     # Access granted if user has ANY of: read, write, or delete
     pass
 
-# With group filter
+# With role filter
 @api_controller('/reports', permissions=[
-    ScopeAnyActionPermission('reports:rw:staff')
+    ScopeAnyActionPermission('reports:rw:admin')
 ])
 class ReportController:
-    # User needs read OR write via staff group
+    # User needs read OR write via admin role
     pass
 
 # With context
@@ -387,7 +379,7 @@ from oxutils.permissions.perms import ScopeAnyPermission
 @api_controller('/dashboard', permissions=[
     ScopeAnyPermission(
         'articles:r',           # Can read articles
-        'invoices:w:staff',     # OR can write invoices as staff
+        'invoices:w:accountant',# OR can write invoices as accountant
         'reports:r:admin'       # OR can read reports as admin
     )
 ])
@@ -400,7 +392,7 @@ class DashboardController:
     ScopeAnyPermission(
         'analytics:r',
         'reports:r?department=finance',
-        'data:w:manager'
+        'data:w:admin'
     )
 ])
 class AnalyticsController:
@@ -418,10 +410,10 @@ class ContentController:
         pass
     
     @http_post('/', permissions=[
-        ScopeAnyPermission('articles:w:editor', 'posts:w:contributor')
+        ScopeAnyPermission('articles:w:editor', 'posts:w:editor')
     ])
     def create_content(self):
-        # Can write articles as editor OR posts as contributor
+        # Can write articles as editor OR posts as editor
         pass
 ```
 
@@ -431,17 +423,17 @@ class ContentController:
 |-----------------|-------|----------|
 | `ScopePermission` | AND | User must have ALL actions (e.g., `'articles:rw'` = read AND write) |
 | `ScopeAnyActionPermission` | OR | User needs ANY action on one scope (e.g., `'articles:rwd'` = read OR write OR delete) |
-| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/groups) |
+| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/roles) |
 
 ### Assign Role to User
 
 ```python
 from oxutils.permissions.utils import assign_role
 
-# Assign role directly
-assign_role(user, 'editor', by=admin_user)
+# Assign role directly for a specific scope
+assign_role(user, 'editor', 'articles', by=admin_user)
 
-# This creates Grants based on RoleGrants for 'editor'
+# This creates Grants based on RoleGrants for 'editor' on 'articles' scope
 ```
 
 ### Assign Group to User
@@ -455,7 +447,6 @@ user_group = assign_group(user, 'staff', by=admin_user)
 # This:
 # 1. Creates a UserGroup linking user to group
 # 2. Assigns all roles from the group
-# 3. Uses group-specific RoleGrants if available
 ```
 
 ### Revoke Permissions
@@ -463,8 +454,8 @@ user_group = assign_group(user, 'staff', by=admin_user)
 ```python
 from oxutils.permissions.utils import revoke_role, revoke_group
 
-# Revoke a single role
-deleted_count, info = revoke_role(user, 'editor')
+# Revoke a single role for a specific scope
+deleted_count, info = revoke_role(user, 'editor', 'articles')
 
 # Revoke entire group (removes all associated grants)
 deleted_count, info = revoke_group(user, 'staff')
@@ -476,11 +467,14 @@ deleted_count, info = revoke_group(user, 'staff')
 from oxutils.permissions.utils import override_grant
 
 # User has ['r', 'w', 'd'] on articles via role
-# Reduce to read-only
-override_grant(user, 'articles', remove_actions=['w', 'd'])
+# Override to read-only
+override_grant(user, 'articles', actions=['r'])
 
-# Grant becomes custom (role=None)
+# Grant becomes locked (locked=True)
 # Will NOT be affected by future group syncs
+
+# To remove a grant entirely
+override_grant(user, 'articles', actions=[])
 ```
 
 ### Synchronize Group
@@ -494,38 +488,62 @@ from oxutils.permissions.utils import group_sync
 stats = group_sync('staff')
 # Returns: {"users_synced": 5, "grants_updated": 15}
 
+# Sync specific roles only (performance optimization)
+stats = group_sync('staff', role_slugs=['editor', 'viewer'])
+# Returns: {"users_synced": 5, "grants_updated": 8}
+
+# Sync specific scope only (performance optimization)
+stats = group_sync('staff', scope='articles')
+# Returns: {"users_synced": 5, "grants_updated": 5}
+
+# Sync specific roles and scope (targeted sync)
+stats = group_sync('staff', role_slugs=['editor'], scope='articles')
+# Returns: {"users_synced": 5, "grants_updated": 3}
+
 # This:
-# 1. Deletes old grants (except custom overrides)
+# 1. Deletes old grants (except locked ones)
 # 2. Recreates grants from current RoleGrants
-# 3. Preserves custom grants (role=None)
+# 3. Preserves locked grants (locked=True)
+# 4. Filters by role_slugs and/or scope if provided
+```
+
+### Synchronize Role
+
+After modifying RoleGrants for a role, sync all independent role assignments:
+
+```python
+from oxutils.permissions.utils import role_sync
+
+# Sync all users with independent role assignments
+stats = role_sync('editor')
+# Returns: {"grants_updated": 12}
+
+# Sync specific scope only (performance optimization)
+stats = role_sync('editor', scope='articles')
+# Returns: {"grants_updated": 3}
+
+# This:
+# 1. Updates grants for users with independent role assignments (user_group=None)
+# 2. Does NOT affect group-based grants (use group_sync for those)
+# 3. Preserves locked grants (locked=True)
+# 4. Updates actions and context directly (no delete/recreate)
 ```
 
 ## Advanced Usage
 
-### Group-Specific Permissions
+### Role Permissions
 
 ```python
-# Generic RoleGrant for all editors
+# RoleGrant for all editors
 RoleGrant.objects.create(
     role=editor_role,
     scope='articles',
-    actions=['r', 'w'],
-    group=None  # Generic
+    actions=['r', 'w', 'd']
 )
 
-# Enhanced permissions for premium group
-RoleGrant.objects.create(
-    role=editor_role,
-    scope='articles',
-    actions=['r', 'w', 'd'],  # Can also delete
-    group=premium_group  # Group-specific
-)
-
-# User assigned directly gets ['r', 'w']
-assign_role(user1, 'editor')
-
-# User assigned via premium group gets ['r', 'w', 'd']
-assign_group(user2, 'premium-staff')
+# All users with editor role get ['r', 'w', 'd'] on articles
+assign_role(user1, 'editor', 'articles')
+assign_group(user2, 'staff')  # If staff group includes editor role
 ```
 
 ### Context-Based Permissions
@@ -629,27 +647,27 @@ rg.save()
 group_sync('staff')
 
 # All staff members now have delete permission
-# EXCEPT those with custom overrides
+# EXCEPT those with locked grants
 ```
 
 ### Handle Permission Abuse
 
 ```python
-# User abuses permissions, reduce them
-override_grant(user, 'articles', remove_actions=['d'])
+# User abuses permissions, set restricted actions
+override_grant(user, 'articles', actions=['r', 'w'])
 
-# Grant becomes custom (role=None)
+# Grant becomes locked (locked=True)
 # Future group syncs won't affect this user's permissions on 'articles'
 ```
 
 ### Temporary Elevated Access
 
 ```python
-# Give temporary admin access
-assign_role(user, 'admin', by=manager)
+# Give temporary admin access for a specific scope
+assign_role(user, 'admin', 'articles', by=manager)
 
 # Later, revoke it
-revoke_role(user, 'admin')
+revoke_role(user, 'admin', 'articles')
 
 # User returns to their group permissions
 ```
@@ -662,8 +680,14 @@ The system uses bulk operations for optimal performance:
 
 ```python
 # group_sync uses bulk_create with update_conflicts
-# 100 users × 10 grants = 100 SQL queries (not 1000)
+# 100 users × 10 grants = efficient bulk operations
 stats = group_sync('large-group')
+
+# Use filters for better performance on large datasets
+stats = group_sync('large-group', role_slugs=['editor'], scope='articles')
+
+# role_sync uses direct updates (no delete/recreate)
+stats = role_sync('editor', scope='articles')
 ```
 
 ### Permission Check Caching
@@ -752,7 +776,7 @@ from oxutils.permissions.exceptions import (
 )
 
 try:
-    assign_role(user, 'invalid-role')
+    assign_role(user, 'invalid-role', 'articles')
 except RoleNotFoundException as e:
     # Handle: "Le rôle 'invalid-role' n'existe pas"
     pass
@@ -767,14 +791,14 @@ All exceptions are automatically converted to appropriate HTTP responses by the 
 - **Role**: `unique(slug)`
 - **Group**: `unique(slug)`
 - **UserGroup**: `unique(user, group)`
-- **RoleGrant**: `unique(role, scope, group)`
+- **RoleGrant**: `unique(role, scope)`
 - **Grant**: `unique(user, scope, role, user_group)`
 
 ### Indexes
 
 - Grant: `(user, scope)`, `(user_group)`, GIN on `actions`, GIN on `context`
 - UserGroup: `(user, group)`
-- RoleGrant: `(role)`, `(group)`, `(role, group)`
+- RoleGrant: `(role)`, `(role, scope)`
 
 ## Best Practices
 
@@ -785,28 +809,19 @@ All exceptions are automatically converted to appropriate HTTP responses by the 
 assign_group(user, 'staff')
 
 # ❌ Avoid (unless specific need)
-assign_role(user, 'role1')
-assign_role(user, 'role2')
-assign_role(user, 'role3')
+assign_role(user, 'role1', 'articles')
+assign_role(user, 'role2', 'articles')
+assign_role(user, 'role3', 'articles')
 ```
 
-### 2. Prefer Generic RoleGrants
+### 2. Define Clear RoleGrants
 
 ```python
-# ✅ Good: Generic RoleGrant
+# ✅ Good: Clear RoleGrant
 RoleGrant.objects.create(
     role=editor,
     scope='articles',
-    actions=['r', 'w'],
-    group=None
-)
-
-# ⚠️ Use sparingly: Group-specific
-RoleGrant.objects.create(
-    role=editor,
-    scope='articles',
-    actions=['r', 'w', 'd'],
-    group=premium_group
+    actions=['r', 'w']
 )
 ```
 
@@ -818,7 +833,15 @@ role_grant.actions = ['r', 'w', 'd']
 role_grant.save()
 
 # ✅ Sync immediately
+# For group-based grants:
 group_sync('staff')
+
+# For independent role assignments:
+role_sync('editor')
+
+# Or sync both with filters for performance:
+group_sync('staff', role_slugs=['editor'], scope='articles')
+role_sync('editor', scope='articles')
 ```
 
 ### 4. Use Context for Multi-Tenancy
@@ -841,7 +864,7 @@ check(user, 'data', ['w'], tenant_id=456)  # False
 
 ```python
 # Always pass by parameter for audit trail
-assign_role(user, 'editor', by=admin_user)
+assign_role(user, 'editor', 'articles', by=admin_user)
 assign_group(user, 'staff', by=admin_user)
 ```
 
@@ -863,6 +886,12 @@ CACHEOPS_REDIS = "redis://localhost:6379/1"
 ```python
 # After modifying RoleGrants, sync the group
 group_sync('staff')
+
+# Or sync specific role/scope for better performance
+group_sync('staff', role_slugs=['editor'], scope='articles')
+
+# Also sync independent role assignments
+role_sync('editor', scope='articles')
 ```
 
 ### Override Not Working
@@ -908,7 +937,7 @@ python manage.py migrate permissions
 
 Key migrations:
 - Initial: Creates all models with constraints and indexes
-- Add `group` to RoleGrant: Allows group-specific permissions
+- RoleGrant unique constraint: `(role, scope)`
 - Add `created_by` to Grant: Enables audit trail
 - Update Grant constraint: Includes `user_group` in uniqueness
 
@@ -928,15 +957,15 @@ class PermissionsTest(TestCase):
         )
     
     def test_role_assignment(self):
-        assign_role(self.user, 'editor')
+        assign_role(self.user, 'editor', 'articles')
         
         self.assertTrue(check(self.user, 'articles', ['r']))
         self.assertTrue(check(self.user, 'articles', ['w']))
         self.assertFalse(check(self.user, 'articles', ['d']))
     
     def test_override(self):
-        assign_role(self.user, 'editor')
-        override_grant(self.user, 'articles', remove_actions=['w'])
+        assign_role(self.user, 'editor', 'articles')
+        override_grant(self.user, 'articles', actions=['r'])
         
         self.assertTrue(check(self.user, 'articles', ['r']))
         self.assertFalse(check(self.user, 'articles', ['w']))
