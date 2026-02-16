@@ -1,0 +1,62 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-02-16 23:11+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+#: exceptions.py:14
+msgid "The requested role does not exist"
+msgstr "Le rôle demandé n'existe pas"
+
+#: exceptions.py:19
+msgid "The requested group does not exist"
+msgstr "Le groupe demandé n'existe pas"
+
+#: exceptions.py:24
+msgid "The requested grant does not exist"
+msgstr "Le grant demandé n'existe pas"
+
+#: exceptions.py:29
+msgid "The requested role grant does not exist"
+msgstr "Le role grant demandé n'existe pas"
+
+#: exceptions.py:34
+msgid "This role is already assigned to the user"
+msgstr "Ce rôle est déjà assigné à l'utilisateur"
+
+#: exceptions.py:39
+msgid "This group is already assigned to the user"
+msgstr "Ce groupe est déjà assigné à l'utilisateur"
+
+#: exceptions.py:44
+msgid "The provided actions are invalid"
+msgstr "Les actions fournies sont invalides"
+
+#: exceptions.py:50
+msgid "Insufficient permissions to perform this action"
+msgstr "Permissions insuffisantes pour effectuer cette action"
+
+#: exceptions.py:55
+msgid "A role grant already exists for this role and scope"
+msgstr "Un role grant existe déjà pour ce rôle et ce scope"
+
+#: exceptions.py:60
+msgid "A grant already exists for this user and scope"
+msgstr "Un grant existe déjà pour cet utilisateur et ce scope"
+
+#: services.py:310 services.py:314
+msgid "Application is not allowed"
+msgstr "L'application n'est pas autorisée"
