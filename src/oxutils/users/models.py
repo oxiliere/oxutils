@@ -74,8 +74,8 @@ class User(AbstractUser, SafeDeleteModel, BaseModelMixin):
     objects = UserManager()
     
     class Meta:
-        verbose_name = _('utilisateur')
-        verbose_name_plural = _('utilisateurs')
+        verbose_name = _('user')
+        verbose_name_plural = _('users')
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['oxi_id']),
