@@ -155,9 +155,18 @@ class Grant(TimestampMixin):
 
     class Meta:
         constraints = [
+            # Contrainte pour les grants avec user_group (grants de groupe)
             models.UniqueConstraint(
-                fields=["user", "scope", "role", "user_group"], name="unique_user_scope_role"
-            )
+                fields=["user", "scope", "role", "user_group"],
+                condition=models.Q(user_group__isnull=False),
+                name="unique_user_scope_role_with_group"
+            ),
+            # Contrainte pour les grants sans user_group (grants indépendants)
+            models.UniqueConstraint(
+                fields=["user", "scope", "role"],
+                condition=models.Q(user_group__isnull=True),
+                name="unique_user_scope_role_without_group"
+            ),
         ]
         indexes = [
             models.Index(fields=["user", "scope"]),

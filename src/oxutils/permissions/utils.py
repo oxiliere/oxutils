@@ -357,9 +357,7 @@ def group_sync(group_slug: str, role_slugs: Optional[list[str]] = None, scope: O
         if filtered_grants:
             Grant.objects.bulk_create(
                 filtered_grants,
-                update_conflicts=True,
-                unique_fields=["user", "scope", "role", "user_group"],
-                update_fields=["actions", "context", "updated_at"]
+                ignore_conflicts=True,
             )
     
     # Compter le nombre d'utilisateurs synchronisés
