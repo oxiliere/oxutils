@@ -154,17 +154,18 @@ wheels = [
 
 [[package]]
 name = "bcc-rates"
-version = "1.1.0"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "beautifulsoup4" },
     { name = "dinero" },
+    { name = "python-dotenv" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/25/2a/3d4d6d83d49b1146288a620be141c290a490304a344c058ac4dc64d6f57d/bcc_rates-1.1.0.tar.gz", hash = "sha256:89303a4641b257eeaa664c1ccb9add8f79a7cd83e60ec6f1b964fb7cf6080f3d", size = 10893, upload-time = "2025-12-19T13:06:40.731Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/ab/5118d9adb05a41f96c73a0779bd1cbdf173c842fd25dda228eca18ce1850/bcc_rates-1.1.1.tar.gz", hash = "sha256:1d7ef4595b93f078ce8934f282a30e263f4df6a55cd98475d6fb0d70c59b9889", size = 11213, upload-time = "2026-04-10T09:54:18.115Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/45/e68f14c2443883ba84b7ba9b19df194ba1e77df0f6687d9152f3b9d773ec/bcc_rates-1.1.0-py3-none-any.whl", hash = "sha256:121c0c9d23007780ba4ccb9db98b694faf1260b456d4e7a521dbbc97a3483880", size = 14402, upload-time = "2025-12-19T13:06:38.773Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/3c/b1347f4849b4143eed247f7945007cc2bf42092450493884233dababa3fb/bcc_rates-1.1.1-py3-none-any.whl", hash = "sha256:08285a233e403abaeda19ba09fc226994218e902c1f20d32fc5a5fb9080449a0", size = 14969, upload-time = "2026-04-10T09:54:20.404Z" },
 ]
 
 [[package]]
@@ -1132,9 +1133,10 @@ wheels = [
 
 [[package]]
 name = "oxutils"
-version = "0.1.20"
+version = "0.1.22"
 source = { editable = "." }
 dependencies = [
+    { name = "bcc-rates" },
     { name = "boto3" },
     { name = "celery" },
     { name = "cryptography" },
@@ -1190,6 +1192,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bcc-rates", specifier = "==1.1.1" },
     { name = "bcc-rates", marker = "extra == 'all'", specifier = ">=1.1.0" },
     { name = "bcc-rates", marker = "extra == 'currency'", specifier = ">=1.1.0" },
     { name = "boto3", specifier = ">=1.41.5" },

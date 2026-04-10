@@ -539,6 +539,12 @@ class PermissionService(BaseService):
                 context=grant_data.context
             )
             
+            groups = Group.objects.filter(roles=role)
+            for group in groups:
+                group_sync(group.slug, role_slugs=[role.slug], scope=role_grant.scope)
+                
+            role_sync(role.slug, scope=role_grant.scope)
+            
             logger.info("role_grant_created", role_slug=grant_data.role, scope=grant_data.scope, actions=grant_data.actions)
             
             return role_grant
@@ -641,6 +647,54 @@ class PermissionService(BaseService):
                 logger.info("role_grant_updated", grant_id=grant_id)
             
             return role_grant
+            
+        except RoleGrant.DoesNotExist:
+            raise RoleGrantNotFoundException(detail=f"Le role grant avec l'ID {grant_id} n'existe pas")
+        except Exception as exc:
+            self.exception_handler(exc, self.logger)
+
+    @transaction.atomic
+    def delete_role_grant(self, grant_id: int) -> None:
+        """
+        Supprime un role grant et synchronise les groupes associés.
+        
+        Args:
+            grant_id: ID du role grant à supprimer
+            
+        Raises:
+            RoleGrantNotFoundException: Si le role grant n'existe pas
+        """
+        try:
+            role_grant = RoleGrant.objects.select_related('role').get(pk=grant_id)
+            role_slug = role_grant.role.slug
+            scope = role_grant.scope
+            
+            # Supprimer le role grant
+            role_grant.delete()
+            
+            # Synchroniser les groupes contenant ce rôle
+            groups = Group.objects.filter(roles__slug=role_slug)
+            for group in groups:
+                try:
+                    group_sync(group.slug, role_slugs=[role_slug], scope=scope)
+                except Exception as e:
+                    logger.error(
+                        "Erreur lors de la synchronisation du groupe",
+                        group=group.slug,
+                        error=str(e)
+                    )
+            
+            # Supprimer de manière indépendante pour les rôles orphelins (en bypassant les groupes)
+            deleted, _ = Grant.objects.filter(
+                role__slug=role_slug,
+                scope=scope,
+                user_group__isnull=True,
+                locked=False
+            ).delete()
+            if deleted > 0:
+                logger.info("grants_deleted_after_role_grant_deleted", role=role_slug, scope=scope, count=deleted)
+
+            logger.info("role_grant_deleted", grant_id=grant_id, role=role_slug, scope=scope)
             
         except RoleGrant.DoesNotExist:
             raise RoleGrantNotFoundException(detail=f"Le role grant avec l'ID {grant_id} n'existe pas")
