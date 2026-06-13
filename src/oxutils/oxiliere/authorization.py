@@ -3,8 +3,8 @@ from django.db import transaction
 
 from oxutils.oxiliere.models import BaseTenant
 from oxutils.oxiliere.utils import get_tenant_user_model
+from oxutils.permissions.models import RoleGrant
 from oxutils.permissions.utils import assign_role
-from oxutils.permissions.models import Role, RoleGrant
 
 
 @transaction.atomic
@@ -14,21 +14,16 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
         tenant=tenant, is_owner=True
     )
 
-    access_scope = getattr(settings, "ACCESS_MANAGER_SCOPE")
+    access_scope = settings.ACCESS_MANAGER_SCOPE
 
     # Vérifier qu'il y a des RoleGrants pour ce scope
     role_grants = list(RoleGrant.objects.filter(scope=access_scope))
-    
+
     if not role_grants:
         return
-
 
     for tenant_user in tenant_users:
         for grant in role_grants:
             assign_role(
-                user=tenant_user.user,
-                role=grant.role,
-                scope=grant.scope,
-                by=None,
-                user_group=None
+                user=tenant_user.user, role=grant.role, scope=grant.scope, by=None, user_group=None
             )

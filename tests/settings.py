@@ -12,6 +12,11 @@ ALLOWED_HOSTS = ['*']
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
+    'django.contrib.sites',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.mfa',
     'django_structlog',
     'auditlog',
     'django_celery_results',
@@ -20,11 +25,13 @@ INSTALLED_APPS = [
     'oxutils.currency',
     'oxutils.users',
     'oxutils.permissions',
+    'oxutils.auth',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django_structlog.middlewares.RequestMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'auditlog.middleware.AuditlogMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
@@ -87,3 +94,25 @@ ACCESS_MANAGER_CONTEXT = {}
 ACCESS_SCOPES = ['access', 'articles', 'users', 'comments']
 CACHE_CHECK_PERMISSION = False
 FIELD_MASKING_KEY = 'LCPN2bFN2NHA6XCZscpv8JctYJQ2FTfuVKIunFUchnE='
+
+# Django Allauth / Auth settings
+SITE_ID = 1
+OXI_COOKIE_DOMAIN = 'example.com'
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+JWT_ALLAUTH_REFRESH_TOKEN_AS_COOKIE = True
+JWT_ALL_AUTH_MAX_SESSIONS = 4
+OLD_PASSWORD_FIELD_ENABLED = True
+LOGOUT_ON_PASSWORD_CHANGE = True
+PASSWORD_RESET_COOKIE_HTTP_ONLY = True
+PASSWORD_RESET_COOKIE_SECURE = False
+PASSWORD_RESET_COOKIE_SAME_SITE = 'Lax'
+PASSWORD_RESET_COOKIE_MAX_AGE = 3600
+MFA_SIGNING_SALT = 'test-mfa-salt'
+MFA_SIGNING_TTL = 300
+TENANT_MODEL = 'auth.Tenant'
+INVITATION_EXPIRY_DAYS = 7
+INVITATIONS_MAX_PER_HOUR = 50
+ACCOUNT_FRONTEND_URLS = {
+    'account_confirm_email': 'https://app.example.com/confirm-email/{key}',
+    'account_reset_password': 'https://app.example.com/reset-password/{uid}/{token}',
+}

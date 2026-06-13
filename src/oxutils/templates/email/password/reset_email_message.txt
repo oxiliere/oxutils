@@ -1,0 +1,14 @@
+{% load i18n %}{% load spa_urls %}{% trans "Password Reset Request" %}
+
+{% trans "Hello" %},
+
+{% trans "You're receiving this email because you requested a password reset for your account. Please click the link below to set a new password:" %}
+
+{% spa_url 'reset_password' uidb64=uid key=token %}
+
+{% trans "If the link above doesn't work, you can also copy and paste it into your browser." %}
+
+{% trans "If you didn't request this password reset, please ignore this email." %}
+
+{% trans "This is an automated message, please do not reply to this email." %}
+{% trans "If you have any questions, please contact our support team." %}
