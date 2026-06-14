@@ -16,7 +16,7 @@ from ninja_extra.permissions import IsAuthenticated
 from ninja_extra.throttling import AnonRateThrottle, UserRateThrottle
 
 from oxutils.auth.invitations.backend import invitation_backend
-from oxutils.auth.invitations.models import InvitationStatus
+from oxutils.auth.invitations.models import InvitationStatus, get_invitation_model
 from oxutils.auth.invitations.schemas import (
     AcceptInvitationSchema,
     CancelInvitationSchema,
@@ -169,9 +169,9 @@ class InvitationController(ControllerBase):
     @load_user
     def resend_invitation(self, request: HttpRequest, payload: ResendInvitationSchema):
         """Resend a pending invitation (renews the token)."""
-        from oxutils.auth.invitations.models import Invitation
         from django.conf import settings
 
+        Invitation = get_invitation_model()
         invitation = Invitation.objects.filter(
             token=payload.token, status=InvitationStatus.PENDING
         ).first()

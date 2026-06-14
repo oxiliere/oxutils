@@ -128,6 +128,7 @@ MFA_SIGNING_TTL = 300  # seconds
 TENANT_MODEL = "your_app.Tenant"
 
 # Invitations
+INVITATION_MODEL = 'myapp.Invitation'      # Required: concrete invitation model
 INVITATION_EXPIRY_DAYS = 7
 INVITATIONS_MAX_PER_HOUR = 50
 INVITATION_MAX_RESENDS = 3
@@ -480,19 +481,35 @@ When creating invitations, the inviter's role determines what roles they can ass
 
 ### Model
 
+`BaseInvitation` is abstract. Each project must create a concrete subclass:
+
 ```python
-class Invitation(BaseModelMixin):
-    tenant: FK → TENANT_MODEL         # Target tenant
-    invited_by: FK → AUTH_USER_MODEL  # Who sent it
-    invitee: FK → AUTH_USER_MODEL     # Who accepted (nullable)
-    email: EmailField                 # Invitee's email
-    token: CharField(128)             # Unique invitation token
-    status: CharField                 # pending/accepted/expired/cancelled
-    role: CharField                   # member/admin/owner
-    expires_at: DateTimeField         # Default: +7 days
-    accepted_at: DateTimeField        # When accepted
-    resend_count: PositiveSmallInt    # Resend counter (max 3)
-    message: TextField                # Optional message
+# myapp/models.py
+from django.conf import settings
+from django.db import models
+from oxutils.auth.invitations.models import BaseInvitation
+
+class Invitation(BaseInvitation):
+    tenant = models.ForeignKey(
+        settings.TENANT_MODEL,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+    )
+
+    class Meta(BaseInvitation.Meta):
+        abstract = False
+        app_label = 'myapp'
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["email", "status"]),
+        ]
+```
+
+Then configure:
+
+```python
+# settings.py
+INVITATION_MODEL = 'myapp.Invitation'
 ```
 
 ## Token Models

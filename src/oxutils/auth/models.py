@@ -1,4 +1,4 @@
-from .invitations.models import Invitation
+from .invitations.models import BaseInvitation, get_invitation_model
 from .tokens.models import (
     AbstractRefreshToken,
     BaseToken,
@@ -19,5 +19,6 @@ __all__ = [
     "AbstractRefreshToken",
     "RefreshTokenWhitelistModel",
     "GenericTokenModel",
-    "Invitation",
+    "BaseInvitation",
+    "get_invitation_model",
 ]

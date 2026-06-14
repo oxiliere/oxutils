@@ -7,11 +7,16 @@ from typing import Optional
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet, Q
+from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from oxutils.auth.invitations.models import Invitation, InvitationStatus, InvitationRole
+from oxutils.auth.invitations.models import (
+    BaseInvitation,
+    InvitationStatus,
+    InvitationRole,
+    get_invitation_model,
+)
 from oxutils.auth.invitations.tokens import InvitationTokenGenerator
 
 logger = structlog.get_logger(__name__)
@@ -21,11 +26,8 @@ class InvitationBackend:
     """
     Manages the full lifecycle of tenant invitations.
 
-    Responsibilities:
-        - Create / send invitations
-        - Accept invitations (add user to tenant)
-        - Cancel / expire invitations
-        - List invitations for users or tenants
+    Uses ``get_invitation_model()`` so it works with whatever concrete
+    Invitation model is configured via ``INVITATION_MODEL``.
     """
 
     def __init__(self):
@@ -43,7 +45,7 @@ class InvitationBackend:
         invited_by,
         role: str = InvitationRole.MEMBER,
         message: str = "",
-    ) -> Invitation:
+    ):
         """
         Create a new invitation for an email address.
 
@@ -51,15 +53,11 @@ class InvitationBackend:
             - The email is already a member of the tenant
             - A pending invitation already exists for this email + tenant
         """
+        Invitation = get_invitation_model()
         email = email.lower().strip()
 
-        # Check user not already in tenant
         self._ensure_not_already_member(tenant, email)
-
-        # Check no duplicate pending invitation
         self._ensure_no_duplicate(tenant, email)
-
-        # Check max invitations limit
         self._check_rate_limit(invited_by)
 
         with transaction.atomic():
@@ -72,27 +70,20 @@ class InvitationBackend:
                 expires_at=self._default_expiry(),
                 message=message,
             )
-            # Generate token after creation (needs pk)
             invitation.token = self.token_generator.make_token(invitation)
             invitation.save(update_fields=["token"])
 
         logger.info(
             "invitation_created",
             invitation_id=str(invitation.pk),
-            tenant=tenant.oxi_id,
+            tenant=getattr(tenant, "oxi_id", str(tenant)),
             email=email,
             role=role,
         )
         return invitation
 
-    def accept_invitation(self, token: str, user) -> Invitation:
-        """
-        Accept an invitation with a token. The user is added to the tenant.
-
-        Raises ValueError if:
-            - Invitation not found or token invalid
-            - Invitation already accepted/expired/cancelled
-        """
+    def accept_invitation(self, token: str, user):
+        """Accept an invitation with a token. The user is added to the tenant."""
         invitation = self._get_valid_invitation(token)
 
         with transaction.atomic():
@@ -102,11 +93,11 @@ class InvitationBackend:
             "invitation_accepted",
             invitation_id=str(invitation.pk),
             user_id=str(user.pk),
-            tenant=invitation.tenant.oxi_id,
+            tenant=getattr(invitation.tenant, "oxi_id", str(invitation.tenant)),
         )
         return invitation
 
-    def cancel_invitation(self, token: str, cancelled_by) -> Invitation:
+    def cancel_invitation(self, token: str, cancelled_by):
         """Cancel a pending invitation."""
         invitation = self._get_pending_invitation(token)
         invitation.cancel()
@@ -117,7 +108,7 @@ class InvitationBackend:
         )
         return invitation
 
-    def validate_token(self, token: str) -> Optional[Invitation]:
+    def validate_token(self, token: str) -> Optional[BaseInvitation]:
         """Validate a token and return the invitation if valid, else None."""
         try:
             return self._get_valid_invitation(token)
@@ -128,6 +119,7 @@ class InvitationBackend:
         """Return all pending invitations for a user's email addresses."""
         from allauth.account.models import EmailAddress
 
+        Invitation = get_invitation_model()
         emails = list(
             EmailAddress.objects.filter(user=user).values_list("email", flat=True)
         )
@@ -142,10 +134,12 @@ class InvitationBackend:
 
     def get_tenant_invitations(self, tenant) -> QuerySet:
         """Return all invitations for a tenant."""
+        Invitation = get_invitation_model()
         return Invitation.objects.filter(tenant=tenant).select_related("invited_by", "invitee")
 
     def expire_stale_invitations(self) -> int:
         """Mark all expired pending invitations as EXPIRED. Returns count."""
+        Invitation = get_invitation_model()
         count = Invitation.objects.filter(
             status=InvitationStatus.PENDING,
             expires_at__lt=timezone.now(),
@@ -158,8 +152,8 @@ class InvitationBackend:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_valid_invitation(self, token: str) -> Invitation:
-        """Fetch a pending invitation by token and validate it."""
+    def _get_valid_invitation(self, token: str):
+        Invitation = get_invitation_model()
         invitation = Invitation.objects.filter(token=token).select_related("tenant").first()
 
         if invitation is None:
@@ -175,7 +169,8 @@ class InvitationBackend:
 
         return invitation
 
-    def _get_pending_invitation(self, token: str) -> Invitation:
+    def _get_pending_invitation(self, token: str):
+        Invitation = get_invitation_model()
         invitation = Invitation.objects.filter(
             token=token, status=InvitationStatus.PENDING
         ).first()
@@ -184,7 +179,6 @@ class InvitationBackend:
         return invitation
 
     def _ensure_not_already_member(self, tenant, email: str) -> None:
-        """Check that the email is not already a member of the tenant."""
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
@@ -193,6 +187,7 @@ class InvitationBackend:
             raise ValueError(_("This user is already a member of the tenant."))
 
     def _ensure_no_duplicate(self, tenant, email: str) -> None:
+        Invitation = get_invitation_model()
         if Invitation.objects.filter(
             tenant=tenant,
             email=email,
@@ -202,6 +197,7 @@ class InvitationBackend:
             raise ValueError(_("A pending invitation already exists for this email."))
 
     def _check_rate_limit(self, invited_by) -> None:
+        Invitation = get_invitation_model()
         max_invites = getattr(settings, "INVITATIONS_MAX_PER_HOUR", 50)
         one_hour_ago = timezone.now() - timedelta(hours=1)
         count = Invitation.objects.filter(

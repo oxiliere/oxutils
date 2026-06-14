@@ -17,7 +17,6 @@ from ninja import Schema
 from pydantic import EmailStr, field_validator, model_validator
 
 from oxutils.auth.invitations.backend import invitation_backend
-from oxutils.auth.invitations.models import Invitation
 
 
 class RegisterSchema(Schema):

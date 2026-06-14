@@ -9,7 +9,7 @@ from ninja import ModelSchema, Schema
 from pydantic import EmailStr, field_validator
 from django.utils.translation import gettext_lazy as _
 
-from oxutils.auth.invitations.models import Invitation, InvitationRole, InvitationStatus
+from oxutils.auth.invitations.models import BaseInvitation, InvitationRole, InvitationStatus
 
 
 # ── Request schemas ────────────────────────────────────────────────
@@ -54,22 +54,22 @@ class InvitationOutSchema(ModelSchema):
     invitee_email: Optional[str] = None
 
     class Meta:
-        model = Invitation
+        model = BaseInvitation
         fields = [
             "id", "email", "token", "status", "role",
             "expires_at", "accepted_at", "created_at", "message",
         ]
 
     @staticmethod
-    def resolve_tenant_name(obj: Invitation) -> str:
+    def resolve_tenant_name(obj: BaseInvitation) -> str:
         return getattr(obj.tenant, "name", str(obj.tenant_id))
 
     @staticmethod
-    def resolve_invited_by_email(obj: Invitation) -> str:
+    def resolve_invited_by_email(obj: BaseInvitation) -> str:
         return getattr(obj.invited_by, "email", "")
 
     @staticmethod
-    def resolve_invitee_email(obj: Invitation) -> Optional[str]:
+    def resolve_invitee_email(obj: BaseInvitation) -> Optional[str]:
         return obj.invitee.email if obj.invitee else None
 
 
