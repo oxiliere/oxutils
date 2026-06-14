@@ -94,7 +94,7 @@ class TestTenantMainMiddleware(TestCase):
         TenantModel = type("TenantModel", (), {})
         TenantModel.DoesNotExist = Exception
         self.get_tenant_model_patch = patch(
-            "django_tenants.utils.get_tenant_model", return_value=TenantModel
+            "oxutils.oxiliere.middleware.get_tenant_model", return_value=TenantModel
         )
         self.get_tenant_model_patch.start()
         self.middleware = self._get_middleware()
