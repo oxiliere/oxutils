@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.schemas module.
 """
+
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 class TestBaseLoginOutputSchema:
@@ -62,8 +64,9 @@ class TestLoginSchema:
     """Tests for LoginSchema."""
 
     def test_validate_empty_input(self):
-        from oxutils.auth.schemas import LoginSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.schemas import LoginSchema
 
         request = Mock()
         request.user = Mock()
@@ -72,8 +75,9 @@ class TestLoginSchema:
             LoginSchema.validate_values(request, {})
 
     def test_validate_missing_password(self):
-        from oxutils.auth.schemas import LoginSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.schemas import LoginSchema
 
         request = Mock()
 
@@ -83,8 +87,9 @@ class TestLoginSchema:
     @patch("oxutils.auth.schemas.allauth_authenticate")
     @patch("oxutils.auth.schemas.is_email_verified")
     def test_validate_authentication_failure(self, mock_verified, mock_auth):
-        from oxutils.auth.schemas import LoginSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.schemas import LoginSchema
 
         mock_auth.return_value = None
         mock_verified.return_value = False
@@ -96,8 +101,9 @@ class TestLoginSchema:
     @patch("oxutils.auth.schemas.allauth_authenticate")
     @patch("oxutils.auth.schemas.is_email_verified")
     def test_validate_email_not_verified(self, mock_verified, mock_auth):
-        from oxutils.auth.schemas import LoginSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.schemas import LoginSchema
 
         mock_user = Mock()
         mock_user.is_active = True
@@ -122,15 +128,14 @@ class TestLoginSchema:
         mock_verified.return_value = True
         request = Mock()
 
-        result = LoginSchema.validate_values(
-            request, {"username": "testuser", "password": "pass"}
-        )
+        result = LoginSchema.validate_values(request, {"username": "testuser", "password": "pass"})
         assert result["username"] == "testuser"
         assert result["password"] == "pass"
 
     def test_validate_missing_username(self):
-        from oxutils.auth.schemas import LoginSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.schemas import LoginSchema
 
         request = Mock()
 
@@ -152,8 +157,8 @@ class TestReauthenticatePasswordSchema:
     """Tests for ReauthenticatePasswordSchema."""
 
     def test_raises_incorrect_credentials_when_password_wrong(self):
-        from oxutils.auth.schemas import ReauthenticatePasswordSchema
         from oxutils.auth.exceptions import IncorrectCredentials
+        from oxutils.auth.schemas import ReauthenticatePasswordSchema
 
         request = Mock()
         request.user = Mock()
@@ -165,8 +170,9 @@ class TestReauthenticatePasswordSchema:
             schema.authenticate(request)
 
     def test_raises_invalid_token_when_no_refresh_token(self):
-        from oxutils.auth.schemas import ReauthenticatePasswordSchema
         from ninja_jwt.exceptions import InvalidToken
+
+        from oxutils.auth.schemas import ReauthenticatePasswordSchema
 
         request = Mock()
         request.user = Mock()
@@ -192,9 +198,7 @@ class TestBaseChangePasswordSchema:
         from oxutils.auth.schemas import BaseChangePasswordSchema
 
         # Bypass the model_validator by constructing via model_construct
-        schema = BaseChangePasswordSchema.model_construct(
-            new_password1="a", new_password2="a"
-        )
+        schema = BaseChangePasswordSchema.model_construct(new_password1="a", new_password2="a")
         response = schema.get_response(logout_on_password_change=True)
         assert response["success"] is True
         assert response["logout_required"] is True
@@ -204,9 +208,7 @@ class TestBaseChangePasswordSchema:
     def test_get_response_no_logout(self, mock_settings, mock_populate):
         from oxutils.auth.schemas import BaseChangePasswordSchema
 
-        schema = BaseChangePasswordSchema.model_construct(
-            new_password1="a", new_password2="a"
-        )
+        schema = BaseChangePasswordSchema.model_construct(new_password1="a", new_password2="a")
         response = schema.get_response(logout_on_password_change=False)
         assert response["success"] is True
         assert response["logout_required"] is False

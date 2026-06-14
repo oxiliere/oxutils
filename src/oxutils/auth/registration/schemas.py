@@ -17,6 +17,7 @@ from ninja import Schema
 from pydantic import EmailStr, field_validator, model_validator
 
 from oxutils.auth.invitations.backend import invitation_backend
+from oxutils.auth.signals import user_activated
 
 
 class RegisterSchema(Schema):
@@ -122,12 +123,16 @@ class RegisterSchema(Schema):
             user = adapter.new_user(request)
         # If user exists but is inactive (pre-created by invitation), reuse it
 
+        was_inactive = not user.is_active if user.pk else True
         user.first_name = self.first_name
         user.last_name = self.last_name
         user.email = self.email
         user.is_active = True
         user.set_password(self.password1)
         user.save()
+
+        if was_inactive:
+            user_activated.send_robust(sender=self.__class__, user=user, request=request)
 
         # ── Setup email ────────────────────────────────────────────
         setup_user_email(request, user, [])

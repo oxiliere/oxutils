@@ -18,6 +18,11 @@ from oxutils.auth.invitations.models import (
     get_invitation_model,
 )
 from oxutils.auth.invitations.tokens import InvitationTokenGenerator
+from oxutils.auth.signals import (
+    invitation_sent,
+    invitation_accepted,
+    invitation_rejected,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +85,9 @@ class InvitationBackend:
             email=email,
             role=role,
         )
+        invitation_sent.send_robust(
+            sender=self.__class__, invitation=invitation, invited_by=invited_by
+        )
         return invitation
 
     def accept_invitation(self, token: str, user):
@@ -95,6 +103,9 @@ class InvitationBackend:
             user_id=str(user.pk),
             tenant=getattr(invitation.tenant, "oxi_id", str(invitation.tenant)),
         )
+        invitation_accepted.send_robust(
+            sender=self.__class__, invitation=invitation, user=user
+        )
         return invitation
 
     def cancel_invitation(self, token: str, cancelled_by):
@@ -105,6 +116,9 @@ class InvitationBackend:
             "invitation_cancelled",
             invitation_id=str(invitation.pk),
             cancelled_by=str(cancelled_by.pk),
+        )
+        invitation_rejected.send_robust(
+            sender=self.__class__, invitation=invitation, cancelled_by=cancelled_by
         )
         return invitation
 

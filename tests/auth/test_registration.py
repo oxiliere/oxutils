@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.registration module.
 """
+
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 class TestRegisterSchema:

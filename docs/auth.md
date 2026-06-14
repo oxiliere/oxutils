@@ -630,6 +630,52 @@ AUTH_COOKIE_SAME_SITE = "Lax"         # CSRF protection
 
 Revoke endpoints require the current session to be **older than 3 days**, preventing a freshly compromised token from destroying legitimate sessions.
 
+## Signals
+
+All signals use `send_robust()` — a failing receiver never blocks the auth
+flow (login still succeeds even if an audit log webhook is down).
+
+```python
+from oxutils.auth.signals import (
+    user_logged_in,
+    user_logged_out,
+    invitation_sent,
+    invitation_resent,
+    invitation_accepted,
+    invitation_rejected,
+    user_activated,
+    user_deactivated,
+)
+```
+
+| Signal | Trigger | Args |
+|--------|---------|------|
+| `user_logged_in` | Login / reauth success | `sender`, `request`, `user` |
+| `user_logged_out` | Logout success | `sender`, `request`, `user` |
+| `invitation_sent` | Invitation created | `sender`, `invitation`, `invited_by` |
+| `invitation_resent` | Token renewed | `sender`, `invitation` |
+| `invitation_accepted` | Accepted + added to tenant | `sender`, `invitation`, `user` |
+| `invitation_rejected` | Cancelled / declined | `sender`, `invitation`, `cancelled_by` |
+| `user_activated` | Account activated | `sender`, `user`, `request` |
+| `user_deactivated` | (hook point — wire in your model) | `sender`, `user` |
+
+### Usage
+
+```python
+from django.dispatch import receiver
+from oxutils.auth.signals import user_logged_in, invitation_accepted
+
+@receiver(user_logged_in)
+def on_login(sender, request, user, **kwargs):
+    # Audit, analytics, notifications...
+    pass
+
+@receiver(invitation_accepted)
+def on_invite_accepted(sender, invitation, user, **kwargs):
+    # Notify tenant admins
+    pass
+```
+
 ## Customization
 
 ### Custom Schemas

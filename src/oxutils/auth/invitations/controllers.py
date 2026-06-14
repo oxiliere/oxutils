@@ -17,6 +17,7 @@ from ninja_extra.throttling import AnonRateThrottle, UserRateThrottle
 
 from oxutils.auth.invitations.backend import invitation_backend
 from oxutils.auth.invitations.models import InvitationStatus, get_invitation_model
+from oxutils.auth.signals import invitation_resent
 from oxutils.auth.invitations.schemas import (
     AcceptInvitationSchema,
     CancelInvitationSchema,
@@ -195,6 +196,8 @@ class InvitationController(ControllerBase):
         invitation.token = invitation_backend.token_generator.make_token(invitation)
         invitation.resend_count = resend_count + 1
         invitation.save(update_fields=["token", "resend_count"])
+
+        invitation_resent.send_robust(sender=self.__class__, invitation=invitation)
 
         return ResponseSchema(
             code=ExceptionCode.SUCCESS,
