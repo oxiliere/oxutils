@@ -10,7 +10,7 @@ This package provides:
 - Permission management
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 from oxutils.conf import AUDIT_MIDDLEWARE, UTILS_APPS
 from oxutils.settings import oxi_settings
