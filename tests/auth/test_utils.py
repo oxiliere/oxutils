@@ -1,19 +1,21 @@
 """
 Tests for oxutils.auth.utils module.
 """
+
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch, PropertyMock
 
 from oxutils.auth.utils import (
-    import_callable,
-    get_client_ip,
-    get_template_path,
-    is_email_verified,
-    user_agent_dict,
     format_confirm_email_url,
     format_reset_password_url,
+    get_client_ip,
     get_refresh_token,
+    get_template_path,
+    import_callable,
+    is_email_verified,
     populate_user,
+    user_agent_dict,
 )
 
 
@@ -35,7 +37,9 @@ class TestImportCallable:
         assert result is MyClass
 
     def test_returns_lambda_directly(self):
-        fn = lambda x: x
+        def fn(x):
+            return x
+
         result = import_callable(fn)
         assert result is fn
 
@@ -89,7 +93,7 @@ class TestGetTemplatePath:
 
     def test_returns_default_when_not_configured(self, mock_settings):
         mock_settings.JWT_ALLAUTH_TEMPLATES = {}
-        result = get_template_path("NONEXISTENT", "default/path.html")
+        get_template_path("NONEXISTENT", "default/path.html")
         # getattr on a dict with a string key returns the default if not found
         # Since TEMPLATE_PATHS = "JWT_ALLAUTH_TEMPLATES", this looks up the setting
         pass

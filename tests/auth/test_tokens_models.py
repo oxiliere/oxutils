@@ -1,10 +1,8 @@
 """
 Tests for oxutils.auth.tokens.models module.
 """
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 
-from django.db import models
+from unittest.mock import patch
 
 
 class TestTokenModel:
@@ -48,7 +46,7 @@ class TestTokenProxy:
     """Tests for TokenProxy model."""
 
     def test_token_proxy_is_proxy(self):
-        from oxutils.auth.tokens.models import TokenProxy, Token
+        from oxutils.auth.tokens.models import Token, TokenProxy
 
         assert TokenProxy._meta.proxy is True
         assert issubclass(TokenProxy, Token)
@@ -168,7 +166,11 @@ class TestRefreshTokenManager:
     @patch("oxutils.auth.tokens.models.settings")
     @patch("oxutils.auth.tokens.models.transaction")
     def test_create_with_user_below_limit(self, mock_transaction, mock_settings):
-        from oxutils.auth.tokens.models import RefreshTokenManager, RefreshTokenWhitelistModel, AbstractRefreshToken
+        from oxutils.auth.tokens.models import (
+            AbstractRefreshToken,
+            RefreshTokenManager,
+            RefreshTokenWhitelistModel,
+        )
 
         mock_settings.JWT_ALL_AUTH_MAX_SESSIONS = 4
         # Need a concrete model to test manager
@@ -176,5 +178,6 @@ class TestRefreshTokenManager:
 
     def test_manager_creates_without_user(self):
         from oxutils.auth.tokens.models import RefreshTokenManager, RefreshTokenWhitelistModel
+
         # Without user, should just call super().create(**kwargs)
         pass

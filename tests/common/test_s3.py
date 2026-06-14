@@ -1,11 +1,11 @@
 """
 Tests for oxutils.s3 module.
 """
-import pytest
+
 from unittest.mock import patch
 
-
 # ── get_s3_storage_backend ────────────────────────────────────────
+
 
 class TestGetS3StorageBackend:
     """Tests for get_s3_storage_backend()."""
@@ -156,7 +156,7 @@ class TestGetS3StorageBackend:
 
         assert opts["access_key"] == "key123"
         assert "bucket_name" not in opts  # Stripped to empty → skipped
-        assert "location" not in opts      # Stripped to empty → skipped
+        assert "location" not in opts  # Stripped to empty → skipped
 
     # ── kwargs override ───────────────────────────────────────────
 
@@ -175,7 +175,7 @@ class TestGetS3StorageBackend:
         opts = result["OPTIONS"]
 
         assert opts["bucket_name"] == "override-bucket"  # kwargs wins
-        assert opts["region_name"] == "env-region"        # env still there
+        assert opts["region_name"] == "env-region"  # env still there
         assert opts["custom_domain"] == "cdn.example.com"  # new from kwargs
 
     # ── All env vars ──────────────────────────────────────────────
@@ -245,6 +245,7 @@ class TestGetS3StorageBackend:
 
 
 # ── get_s3_static_url ─────────────────────────────────────────────
+
 
 class TestGetS3StaticUrl:
     """Tests for get_s3_static_url()."""

@@ -576,6 +576,122 @@ CACHEOPS = {
 }
 ```
 
+## Signals
+
+All signals use `send_robust()` — a failing receiver never blocks the operation.
+
+```python
+from oxutils.oxiliere.signals import (
+    tenant_created,
+    tenant_deleted,
+    tenant_restored,
+    tenant_force_dropped,
+    tenant_subscription_changed,
+    tenant_user_added,
+    tenant_user_removed,
+    tenant_user_role_changed,
+    tenant_user_activated,
+    tenant_user_deactivated,
+)
+```
+
+### Tenant Lifecycle
+
+| Signal | Trigger | Args |
+|--------|---------|------|
+| `tenant_created` | First save of a new tenant | `sender`, `tenant` |
+| `tenant_deleted` | `delete_tenant()` soft-delete | `sender`, `tenant` |
+| `tenant_restored` | `restore()` after soft-delete | `sender`, `tenant` |
+| `tenant_force_dropped` | `delete(force_drop=True)` | `sender`, `tenant` |
+| `tenant_subscription_changed` | Plan/status/end_date change | `sender`, `tenant`, `previous` |
+
+### Tenant Status → HTTP Mapping
+
+The middleware returns distinct codes for each tenant status:
+
+| Status | HTTP | `code` | Retry-After |
+|--------|------|--------|-------------|
+| `PENDING_MIGRATION` | 503 Service Unavailable | `pending_setup` | 30s |
+| `ACTIVE` | — (normal flow) | — | — |
+| `INACTIVE` | 404 Not Found | `inactive` | — |
+| `SUSPENDED` | 423 Locked | `locked` | — |
+| `DELETED` | 404 Not Found | — | — |
+| `REMOVED` | 404 Not Found | — | — |
+
+Example response for `PENDING_MIGRATION`:
+
+```json
+{
+  "detail": "Tenant setup is in progress. Please try again shortly.",
+  "code": "pending_setup"
+}
+```
+
+> **Schema operations are async.**  `auto_create_schema` and `auto_drop_schema`
+> are set to `False` in `BaseTenant`.  Use signals + Celery tasks instead.
+
+### Celery Tasks (Schema Management)
+
+```python
+# tasks.py
+from celery import shared_task
+from django.core.management import call_command
+from oxutils.oxiliere.signals import tenant_created, tenant_deleted, tenant_restored
+
+@shared_task
+def create_tenant_schema(tenant_id):
+    """Create PostgreSQL schema for a new tenant."""
+    call_command('migrate_schemas', tenant=tenant_id, executor='parallel')
+
+@shared_task
+def drop_tenant_schema(tenant_id):
+    """Drop PostgreSQL schema when a tenant is deleted."""
+    Tenant = apps.get_model(settings.TENANT_MODEL)
+    tenant = Tenant.objects.get(pk=tenant_id)
+    tenant.auto_drop_schema = True
+    tenant.delete(force_drop=True)
+
+# signals.py  (in your project)
+from django.dispatch import receiver
+from oxutils.oxiliere.signals import tenant_created, tenant_deleted, tenant_restored
+
+@receiver(tenant_created)
+def on_tenant_created(sender, tenant, **kwargs):
+    create_tenant_schema.delay(str(tenant.pk))
+
+@receiver(tenant_deleted)
+def on_tenant_deleted(sender, tenant, **kwargs):
+    drop_tenant_schema.delay(str(tenant.pk))
+```
+
+### Tenant Membership
+
+| Signal | Trigger | Args |
+|--------|---------|------|
+| `tenant_user_added` | `add_user()` | `sender`, `tenant`, `user` |
+| `tenant_user_removed` | `remove_user()` | `sender`, `tenant`, `user` |
+| `tenant_user_role_changed` | Role/status change on save | `sender`, `tenant_user`, `previous` |
+| `tenant_user_activated` | Status → ACTIVE | `sender`, `tenant_user` |
+| `tenant_user_deactivated` | Status ACTIVE → autre | `sender`, `tenant_user` |
+
+### Usage
+
+```python
+from django.dispatch import receiver
+from oxutils.oxiliere.signals import tenant_created, tenant_user_role_changed
+
+@receiver(tenant_created)
+def on_tenant_created(sender, tenant, **kwargs):
+    # Provision resources, send welcome email...
+    pass
+
+@receiver(tenant_user_role_changed)
+def on_role_changed(sender, tenant_user, previous, **kwargs):
+    if previous.get('is_owner') and not tenant_user.is_owner:
+        # Owner demoted — audit, notify...
+        pass
+```
+
 ## Management Commands
 
 ### migrate_schemas

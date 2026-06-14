@@ -131,5 +131,12 @@ pythonpath = [".", "src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --ds=tests.settings"
+addopts = "-v --tb=short --ds=tests.settings --strict-markers"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:django.*",
+    "ignore::DeprecationWarning:pydantic.*",
+    "ignore::PendingDeprecationWarning:",
+    "ignore::pydantic.PydanticDeprecatedSince20:ninja.*",
+    "ignore::pydantic.PydanticDeprecatedSince20:ninja_extra.*",
+]

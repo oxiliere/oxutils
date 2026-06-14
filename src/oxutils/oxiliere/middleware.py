@@ -1,34 +1,28 @@
+import structlog
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.urls import set_urlconf
-from django.utils.module_loading import import_string
 from django.utils.deprecation import MiddlewareMixin
-
-import structlog
-
+from django.utils.module_loading import import_string
 from django_tenants.utils import (
     get_public_schema_name,
     get_public_schema_urlconf,
+    get_tenant_model,
     get_tenant_types,
     has_multi_type_tenants,
-    get_tenant_model
 )
-from oxutils.settings import oxi_settings
-from oxutils.constants import (
-    ORGANIZATION_HEADER_KEY,
-    ORGANIZATION_TOKEN_COOKIE_KEY
-)
-from oxutils.oxiliere.utils import is_system_tenant
+
+from oxutils.constants import ORGANIZATION_HEADER_KEY, ORGANIZATION_TOKEN_COOKIE_KEY
 from oxutils.jwt.models import TokenTenant
 from oxutils.jwt.tokens import OrganizationAccessToken
 from oxutils.oxiliere.context import set_current_tenant_schema_name
-
-
+from oxutils.oxiliere.enums import TenantStatus
+from oxutils.oxiliere.utils import is_system_tenant
+from oxutils.settings import oxi_settings
 
 logger = structlog.get_logger(__name__)
-
 
 
 class TenantMainMiddleware(MiddlewareMixin):
@@ -45,30 +39,27 @@ class TenantMainMiddleware(MiddlewareMixin):
 
     @staticmethod
     def get_org_id_from_request(request):
-        """ Extracts organization ID from request header X-Organization-ID.
-        """
-        custom = 'HTTP_' + ORGANIZATION_HEADER_KEY.upper().replace('-', '_')
+        """Extracts organization ID from request header X-Organization-ID."""
+        custom = "HTTP_" + ORGANIZATION_HEADER_KEY.upper().replace("-", "_")
         return request.headers.get(ORGANIZATION_HEADER_KEY) or request.META.get(custom)
 
     def get_tenant(self, oxi_id):
-        """ Get tenant by oxi_id instead of domain.
-        """
+        """Get tenant by oxi_id instead of domain."""
         return self.tenant_model.objects.get(oxi_id=oxi_id)
 
     def get_tenant_user(self, tenant, user, raise_exception=False):
-        """ Get tenant user by tenant and user.
-        """
+        """Get tenant user by tenant and user."""
         if not tenant or not user:
             if raise_exception:
                 raise ObjectDoesNotExist("tenant_user_not_found, tenant or user is None")
             return None
 
         try:
-            return tenant.users.select_related('user').get(user__pk=user.id)
-        except ObjectDoesNotExist:
-            logger.error("tenant_user_not_found", tenant_id=tenant.id, user_id=user.id)
+            return tenant.users.select_related("user").get(user__pk=user.id)
+        except ObjectDoesNotExist as exc:
+            logger.error("tenant_user_not_found", tenant_id=tenant.id, user_id=user.id, exc_info=exc)
             if raise_exception:
-                raise ObjectDoesNotExist("tenant_user_not_found")
+                raise ObjectDoesNotExist("tenant_user_not_found") from exc
             return None
 
     def process_request(self, request):
@@ -76,7 +67,7 @@ class TenantMainMiddleware(MiddlewareMixin):
         # the tenant metadata is stored.
 
         connection.set_schema_to_public()
-        
+
         oxi_id = self.get_org_id_from_request(request)
 
         # Try to get tenant from cookie token first
@@ -84,23 +75,36 @@ class TenantMainMiddleware(MiddlewareMixin):
         tenant = None
         old_tenant = None
         request._should_set_tenant_cookie = False
-        
+
         if tenant_token:
             tenant = TokenTenant.for_token(tenant_token)
             # Verify the token's oxi_id matches the request
             if tenant and not is_system_tenant(tenant) and tenant.oxi_id != oxi_id:
-                logger.info("tenant_token_oxi_id_doesnt_match_request_oxi_id", tenant_oxi_id=tenant.oxi_id, request_oxi_id=oxi_id)
+                logger.info(
+                    "tenant_token_oxi_id_doesnt_match_request_oxi_id",
+                    tenant_oxi_id=tenant.oxi_id,
+                    request_oxi_id=oxi_id,
+                )
                 old_tenant = tenant
                 tenant = None
 
-            if tenant and hasattr(request, 'user') and request.user and tenant.user.oxi_id != request.user.id:
-                logger.info("tenant_user_token_oxi_id_doesnt_match", tenant_oxi_id=tenant.oxi_id, user_oxi_id=request.user.id)
+            if (
+                tenant
+                and hasattr(request, "user")
+                and request.user
+                and tenant.user.oxi_id != request.user.id
+            ):
+                logger.info(
+                    "tenant_user_token_oxi_id_doesnt_match",
+                    tenant_oxi_id=tenant.oxi_id,
+                    user_oxi_id=request.user.id,
+                )
                 old_tenant = tenant
                 tenant = None
-        
+
         # If no valid token, fetch from database
         if not tenant:
-            if oxi_id: # fetch with oxi_id on tenant
+            if oxi_id:  # fetch with oxi_id on tenant
                 try:
                     tenant = self.get_tenant(oxi_id)
                     tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=True)
@@ -109,31 +113,42 @@ class TenantMainMiddleware(MiddlewareMixin):
                     request._should_set_tenant_cookie = True
 
                     if old_tenant:
-                        logger.info("tenant_changed", old_tenant=old_tenant.oxi_id, new_tenant=tenant.oxi_id)
-                    
+                        logger.info(
+                            "tenant_changed", old_tenant=old_tenant.oxi_id, new_tenant=tenant.oxi_id
+                        )
+
                 except ObjectDoesNotExist as ex:
                     logger.error("tenant_not_found", oxi_id=oxi_id, error=str(ex))
                     default_tenant = self.no_tenant_found(request, oxi_id)
                     return default_tenant
-            else: # try to return the system tenant
+            else:  # try to return the system tenant
                 try:
                     from oxutils.oxiliere.caches import get_system_tenant
+
                     tenant = get_system_tenant()
 
-                    if hasattr(request, 'user') and request.user:
-                        tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=False)
+                    if hasattr(request, "user") and request.user:
+                        tenant.user = self.get_tenant_user(
+                            tenant, request.user, raise_exception=False
+                        )
                     else:
                         tenant.user = None
-                    
+
                     request._should_set_tenant_cookie = True
                 except Exception as e:
                     logger.error("system_tenant_not_found", error=str(e))
                     from django.http import HttpResponseBadRequest
-                    return HttpResponseBadRequest('Missing X-Organization-ID header')
+
+                    return HttpResponseBadRequest("Missing X-Organization-ID header")
 
         if tenant.is_deleted or not tenant.is_active:
             logger.error("tenant_is_deleted_or_inactive", oxi_id=oxi_id)
             return self.no_tenant_found(request, oxi_id)
+
+        # Delegate status-specific responses
+        status_response = self._handle_tenant_status(request, tenant)
+        if status_response is not None:
+            return status_response
 
         if tenant and isinstance(tenant, TokenTenant):
             request.db_tenant = None
@@ -148,8 +163,8 @@ class TenantMainMiddleware(MiddlewareMixin):
 
     def process_response(self, request, response):
         """Set the tenant token cookie if needed."""
-        if hasattr(request, '_should_set_tenant_cookie') and request._should_set_tenant_cookie:
-            if hasattr(request, 'db_tenant') and isinstance(request.db_tenant, self.tenant_model):
+        if hasattr(request, "_should_set_tenant_cookie") and request._should_set_tenant_cookie:
+            if hasattr(request, "db_tenant") and isinstance(request.db_tenant, self.tenant_model):
                 # Generate token from DB tenant
                 token = OrganizationAccessToken.for_tenant(request.db_tenant)
                 response.set_cookie(
@@ -157,28 +172,76 @@ class TenantMainMiddleware(MiddlewareMixin):
                     value=str(token),
                     max_age=60 * oxi_settings.jwt_org_access_token_lifetime,
                     httponly=True,
-                    secure=getattr(settings, 'SESSION_COOKIE_SECURE', False),
-                    samesite='Lax',
+                    secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+                    samesite="Lax",
                 )
         return response
 
     def no_tenant_found(self, request, oxi_id):
-        """ What should happen if no tenant is found.
-        This makes it easier if you want to override the default behavior """
-        if hasattr(settings, 'DEFAULT_NOT_FOUND_TENANT_VIEW'):
+        """What should happen if no tenant is found.
+        This makes it easier if you want to override the default behavior"""
+        if hasattr(settings, "DEFAULT_NOT_FOUND_TENANT_VIEW"):
             view_path = settings.DEFAULT_NOT_FOUND_TENANT_VIEW
             view = import_string(view_path)
-            if hasattr(view, 'as_view'):
+            if hasattr(view, "as_view"):
                 response = view.as_view()(request)
             else:
                 response = view(request)
-            if hasattr(response, 'render'):
+            if hasattr(response, "render"):
                 response.render()
             return response
-        elif hasattr(settings, 'SHOW_PUBLIC_IF_NO_TENANT_FOUND') and settings.SHOW_PUBLIC_IF_NO_TENANT_FOUND:
+        elif (
+            hasattr(settings, "SHOW_PUBLIC_IF_NO_TENANT_FOUND")
+            and settings.SHOW_PUBLIC_IF_NO_TENANT_FOUND
+        ):
             self.setup_url_routing(request=request, force_public=True)
         else:
             raise self.TENANT_NOT_FOUND_EXCEPTION('No tenant for X-Organization-ID "%s"' % oxi_id)
+
+    # ── Status handling ─────────────────────────────────────────────
+
+    def _handle_tenant_status(self, request, tenant):
+        """Return an HttpResponse for non-ACTIVE tenants, or None to proceed."""
+        oxi_id = self.get_org_id_from_request(request)
+        status = getattr(tenant, "status", None)
+
+        handlers = {
+            TenantStatus.PENDING_MIGRATION: self._pending_migration_response,
+            TenantStatus.SUSPENDED: self._suspended_response,
+            TenantStatus.INACTIVE: self._inactive_response,
+        }
+
+        handler = handlers.get(status)
+        if handler:
+            logger.info(f"tenant_{status}", oxi_id=oxi_id)
+            return handler(oxi_id)
+        return None
+
+    @staticmethod
+    def _pending_migration_response(oxi_id):
+        response = HttpResponse(
+            content=b'{"detail":"Tenant setup is in progress. Please try again shortly.","code":"pending_setup"}',
+            content_type="application/json",
+            status=503,
+        )
+        response["Retry-After"] = "30"
+        return response
+
+    @staticmethod
+    def _suspended_response(oxi_id):
+        return HttpResponse(
+            content=b'{"detail":"This tenant has been suspended.","code":"locked"}',
+            content_type="application/json",
+            status=423,
+        )
+
+    @staticmethod
+    def _inactive_response(oxi_id):
+        return HttpResponse(
+            content=b'{"detail":"This tenant is currently inactive.","code":"inactive"}',
+            content_type="application/json",
+            status=404,
+        )
 
     @staticmethod
     def setup_url_routing(request, force_public=False):
@@ -190,17 +253,19 @@ class TenantMainMiddleware(MiddlewareMixin):
         public_schema_name = get_public_schema_name()
         if has_multi_type_tenants():
             tenant_types = get_tenant_types()
-            if (not hasattr(request, 'tenant') or
-                    ((force_public or request.tenant.schema_name == get_public_schema_name()) and
-                     'URLCONF' in tenant_types[public_schema_name])):
+            if not hasattr(request, "tenant") or (
+                (force_public or request.tenant.schema_name == get_public_schema_name())
+                and "URLCONF" in tenant_types[public_schema_name]
+            ):
                 request.urlconf = get_public_schema_urlconf()
             else:
                 tenant_type = request.tenant.get_tenant_type()
-                request.urlconf = tenant_types[tenant_type]['URLCONF']
+                request.urlconf = tenant_types[tenant_type]["URLCONF"]
             set_urlconf(request.urlconf)
 
         else:
             # Do we have a public-specific urlconf?
-            if (hasattr(settings, 'PUBLIC_SCHEMA_URLCONF') and
-                    (force_public or request.tenant.schema_name == get_public_schema_name())):
+            if hasattr(settings, "PUBLIC_SCHEMA_URLCONF") and (
+                force_public or request.tenant.schema_name == get_public_schema_name()
+            ):
                 request.urlconf = settings.PUBLIC_SCHEMA_URLCONF

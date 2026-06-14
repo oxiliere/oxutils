@@ -10,6 +10,7 @@
 - REST API endpoints for rate queries
 - Admin interface for rate monitoring
 - Support for 17 major currencies
+- Built-in signals for sync success and failure
 
 ## Supported Currencies
 
@@ -313,6 +314,37 @@ OXI_BCC_FALLBACK_ON_OXR = True  # Default: False
 
 # Configure bcc-rates library (if needed)
 BCC_RATES_CACHE_DIR = '/path/to/cache'  # Optional
+```
+
+## Signals
+
+Two signals are fired during currency synchronization. Both use
+`send_robust()` — a failing receiver never blocks the sync.
+
+```python
+from oxutils.currency.signals import currency_sync_succeeded, currency_sync_failed
+```
+
+| Signal | Trigger | Args |
+|--------|---------|------|
+| `currency_sync_succeeded` | Sync completed | `sender`, `state`, `source`, `count` |
+| `currency_sync_failed` | Sync failed (any exception) | `sender`, `error`, `source` |
+
+### Usage
+
+```python
+from django.dispatch import receiver
+from oxutils.currency.signals import currency_sync_succeeded, currency_sync_failed
+
+@receiver(currency_sync_succeeded)
+def on_sync_success(sender, state, source, count, **kwargs):
+    # Invalidate caches, notify monitoring, etc.
+    cache.delete('latest_rates')
+
+@receiver(currency_sync_failed)
+def on_sync_failed(sender, error, source, **kwargs):
+    # Send alert, log to Sentry, fallback to cached rates...
+    logger.critical(f"Currency sync failed: {error}")
 ```
 
 ## Error Handling

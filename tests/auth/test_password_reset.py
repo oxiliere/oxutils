@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.password_reset module.
 """
+
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 class TestPasswordResetSchema:
@@ -46,7 +48,9 @@ class TestPasswordResetSchema:
 
     @patch("oxutils.auth.password_reset.schemas.PasswordResetForm")
     @patch("oxutils.auth.password_reset.schemas.EmailAddress")
-    def test_send_password_reset_email_not_sent_if_unverified(self, mock_email_address, mock_form_class):
+    def test_send_password_reset_email_not_sent_if_unverified(
+        self, mock_email_address, mock_form_class
+    ):
         from oxutils.auth.password_reset.schemas import PasswordResetSchema
 
         mock_form_instance = Mock()
@@ -64,8 +68,9 @@ class TestPasswordResetSchema:
 
     @patch("oxutils.auth.password_reset.schemas.PasswordResetForm")
     def test_send_password_reset_email_invalid_form(self, mock_form_class):
-        from oxutils.auth.password_reset.schemas import PasswordResetSchema
         from ninja_extra import exceptions
+
+        from oxutils.auth.password_reset.schemas import PasswordResetSchema
 
         mock_form_instance = Mock()
         mock_form_instance.is_valid.return_value = False
@@ -163,7 +168,8 @@ class TestResetPasswordPermission:
 
         mock_access_token = Mock()
         mock_access_token.__contains__ = lambda self, key: key in {
-            "one_time_permission", "for_user"
+            "one_time_permission",
+            "for_user",
         }
         mock_access_token.__getitem__ = lambda self, key: {
             "one_time_permission": "PASS_RESET_ACCESS",
@@ -187,7 +193,8 @@ class TestResetPasswordPermission:
 
         mock_access_token = Mock()
         mock_access_token.__contains__ = lambda self, key: key in {
-            "one_time_permission", "for_user"
+            "one_time_permission",
+            "for_user",
         }
         mock_access_token.__getitem__ = lambda self, key: {
             "one_time_permission": "WRONG_PERMISSION",

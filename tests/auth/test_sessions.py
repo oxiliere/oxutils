@@ -1,16 +1,19 @@
 """
 Tests for oxutils.auth.sessions module.
 """
+
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 class TestUserSessionSchema:
     """Tests for UserSession schema."""
 
     def test_is_model_schema(self):
-        from oxutils.auth.sessions.schemas import UserSession
         from ninja import ModelSchema
+
+        from oxutils.auth.sessions.schemas import UserSession
         from oxutils.auth.tokens.models import RefreshTokenWhitelistModel
 
         assert issubclass(UserSession, ModelSchema)
@@ -32,8 +35,8 @@ class TestUserSessionController:
     """Tests for UserSessionController."""
 
     def test_validate_current_session_age_no_cat_claim(self):
-        from oxutils.auth.sessions.controllers import UserSessionController
         from oxutils.auth.exceptions import ForbidNewSession
+        from oxutils.auth.sessions.controllers import UserSessionController
 
         ctrl = UserSessionController()
         request = Mock()

@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.adapter module.
 """
+
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 from oxutils.auth.adapter import JWTAllAuthAdapter
 
@@ -89,106 +91,160 @@ class TestJWTAllAuthAdapter:
         assert result == "code123"
         assert mock_send_mail.called
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_html_only(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         mock_render_to_string.return_value = "Rendered content"
         msg = self.adapter.render_mail(
-            "account/email/test", "test@example.com", {"user": Mock()},
+            "account/email/test",
+            "test@example.com",
+            {"user": Mock()},
             template_path="custom/template.html",
         )
         assert msg.subject is not None
         assert msg.to == ["test@example.com"]
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_multipart(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         mock_render_to_string.return_value = "Rendered content"
         msg = self.adapter.render_mail(
-            "account/email/test", "test@example.com", {"user": Mock()},
+            "account/email/test",
+            "test@example.com",
+            {"user": Mock()},
         )
         assert msg.subject is not None
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_with_headers(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         mock_render_to_string.return_value = "Rendered content"
         msg = self.adapter.render_mail(
-            "account/email/test", "test@example.com", {"user": Mock()},
+            "account/email/test",
+            "test@example.com",
+            {"user": Mock()},
             headers={"X-Custom": "value"},
         )
         assert msg.subject is not None
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_with_multiple_recipients(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         mock_render_to_string.return_value = "Rendered content"
         msg = self.adapter.render_mail(
-            "account/email/test", ["user1@example.com", "user2@example.com"], {"user": Mock()},
+            "account/email/test",
+            ["user1@example.com", "user2@example.com"],
+            {"user": Mock()},
         )
         assert msg.to == ["user1@example.com", "user2@example.com"]
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string", return_value="Rendered")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_falls_back_to_txt(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         msg = self.adapter.render_mail(
-            "account/email/test", "test@example.com", {"user": Mock()},
+            "account/email/test",
+            "test@example.com",
+            {"user": Mock()},
         )
         assert msg.subject is not None
 
-    @patch.object(JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s)
+    @patch.object(
+        JWTAllAuthAdapter, "format_email_subject", side_effect=lambda s: "Formatted: " + s
+    )
     @patch.object(JWTAllAuthAdapter, "get_from_email", return_value="from@example.com")
     @patch("oxutils.auth.adapter.render_to_string", return_value="Rendered")
     @patch("oxutils.auth.adapter.get_current_site")
     def test_render_mail_subject_formatting(
-        self, mock_get_current_site, mock_render_to_string, mock_from_email, mock_fmt_subject,
-        mock_allauth_context, mock_allauth_app_settings
+        self,
+        mock_get_current_site,
+        mock_render_to_string,
+        mock_from_email,
+        mock_fmt_subject,
+        mock_allauth_context,
+        mock_allauth_app_settings,
     ):
         mock_allauth_app_settings.TEMPLATE_EXTENSION = "html"
         mock_allauth_context.request = Mock()
         mock_get_current_site.return_value = Mock(domain="example.com", name="Example")
         msg = self.adapter.render_mail(
-            "account/email/test", "test@example.com", {"user": Mock()},
+            "account/email/test",
+            "test@example.com",
+            {"user": Mock()},
             subject_path="custom/subject.txt",
         )
         assert msg.subject is not None

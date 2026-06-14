@@ -1,12 +1,10 @@
 """
 Tests for oxutils.auth.exceptions module.
 """
-import pytest
-
 from oxutils.auth.exceptions import (
-    NotVerifiedEmail,
-    IncorrectCredentials,
     ForbidNewSession,
+    IncorrectCredentials,
+    NotVerifiedEmail,
     ReauthenticationRequired,
 )
 

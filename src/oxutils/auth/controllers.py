@@ -11,6 +11,7 @@ from ninja_jwt.settings import api_settings
 
 from oxutils.auth.invitations.controllers import InvitationController
 from oxutils.auth.mixins import CookieTokenMixin
+from oxutils.auth.signals import user_logged_in, user_logged_out
 from oxutils.auth.password_reset.controllers import (
     PasswordResetConfirmController,
     PasswordResetController,
@@ -66,6 +67,8 @@ class LoginController(ControllerBase, CookieTokenMixin):
 
         self.set_token_cookie(access_token=schema.access, refresh_token=schema.refresh)
 
+        user_logged_in.send_robust(sender=self.__class__, request=request, user=user_token._user)
+
         return schema
 
     @http_post(
@@ -103,6 +106,8 @@ class ReauthenticateController(ControllerBase, CookieTokenMixin):
 
         self.set_token_cookie(access_token=schema.access, refresh_token=schema.refresh)
 
+        user_logged_in.send_robust(sender=self.__class__, request=request, user=request.user)
+
         return schema
 
 
@@ -128,6 +133,7 @@ class LogoutController(ControllerBase, CookieTokenMixin):
         try:
             RemoveRefreshTokenSchema.model_validate(input_data, context={"user": request.user.id})
             self.remove_token_cookie()
+            user_logged_out.send_robust(sender=self.__class__, request=request, user=request.user)
             return 200, {"detail": _("Successfully logged out.")}
         except (TokenError, InvalidToken) as exc:
             return 401, {"detail": _("Invalid token.")}

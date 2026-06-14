@@ -1,33 +1,35 @@
-import uuid
 import time
-from django.db import models
-from django.db import transaction
+import uuid
+
 from django.conf import settings
+from django.db import models, transaction
+
 from oxutils.models.fields import MaskedBackupField
 
-
-
 try:
-    from safedelete.models import SafeDeleteModel
-    from safedelete.models import SOFT_DELETE_CASCADE
+    from safedelete.models import SOFT_DELETE_CASCADE, SafeDeleteModel
     from safedelete.signals import post_undelete
 except ImportError:
     from django.dispatch import Signal
+
     post_undelete = Signal()
     SOFT_DELETE_CASCADE = 2
 
     class SafeDeleteModel(models.Model):
         def __new__(cls, *args, **kwargs):
-            raise ImportError("django-safedelete is not installed, please install it to use SafeDeleteModel")
+            raise ImportError(
+                "django-safedelete is not installed, please install it to use SafeDeleteModel"
+            )
 
 
 class UUIDPrimaryKeyMixin(models.Model):
     """Mixin that provides a UUID primary key field."""
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
-        help_text="Unique identifier for this record"
+        help_text="Unique identifier for this record",
     )
 
     class Meta:
@@ -36,13 +38,12 @@ class UUIDPrimaryKeyMixin(models.Model):
 
 class TimestampMixin(models.Model):
     """Mixin that provides created_at and updated_at timestamp fields."""
+
     created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="Date and time when this record was created"
+        auto_now_add=True, help_text="Date and time when this record was created"
     )
     updated_at = models.DateTimeField(
-        auto_now=True,
-        help_text="Date and time when this record was last updated"
+        auto_now=True, help_text="Date and time when this record was last updated"
     )
 
     class Meta:
@@ -51,13 +52,14 @@ class TimestampMixin(models.Model):
 
 class UserTrackingMixin(models.Model):
     """Mixin that tracks which user created and last modified a record."""
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="%(app_label)s_%(class)s_created",
-        help_text="User who created this record"
+        help_text="User who created this record",
     )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -65,7 +67,7 @@ class UserTrackingMixin(models.Model):
         null=True,
         blank=True,
         related_name="%(app_label)s_%(class)s_updated",
-        help_text="User who last updated this record"
+        help_text="User who last updated this record",
     )
 
     class Meta:
@@ -74,10 +76,9 @@ class UserTrackingMixin(models.Model):
 
 class SlugMixin(models.Model):
     """Mixin that provides a slug field."""
+
     slug = models.SlugField(
-        max_length=255,
-        unique=True,
-        help_text="URL-friendly version of the name"
+        max_length=255, unique=True, help_text="URL-friendly version of the name"
     )
 
     class Meta:
@@ -86,14 +87,9 @@ class SlugMixin(models.Model):
 
 class NameMixin(models.Model):
     """Mixin that provides name and description fields."""
-    name = models.CharField(
-        max_length=255,
-        help_text="Name of this record"
-    )
-    description = models.TextField(
-        blank=True,
-        help_text="Optional description"
-    )
+
+    name = models.CharField(max_length=255, help_text="Name of this record")
+    description = models.TextField(blank=True, help_text="Optional description")
 
     class Meta:
         abstract = True
@@ -104,10 +100,8 @@ class NameMixin(models.Model):
 
 class ActiveMixin(models.Model):
     """Mixin that provides an active/inactive status field."""
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether this record is active"
-    )
+
+    is_active = models.BooleanField(default=True, help_text="Whether this record is active")
 
     class Meta:
         abstract = True
@@ -115,14 +109,12 @@ class ActiveMixin(models.Model):
 
 class OrderingMixin(models.Model):
     """Mixin that provides an ordering field."""
-    order = models.PositiveIntegerField(
-        default=0,
-        help_text="Order for sorting records"
-    )
+
+    order = models.PositiveIntegerField(default=0, help_text="Order for sorting records")
 
     class Meta:
         abstract = True
-        ordering = ['order']
+        ordering = ["order"]
 
 
 class BaseModelMixin(UUIDPrimaryKeyMixin, TimestampMixin, ActiveMixin):
@@ -130,6 +122,7 @@ class BaseModelMixin(UUIDPrimaryKeyMixin, TimestampMixin, ActiveMixin):
     Base mixin that combines the most commonly used mixins.
     Provides UUID primary key, timestamps, and active status.
     """
+
     class Meta:
         abstract = True
 
@@ -195,9 +188,9 @@ class SafeDeleteModelMixin(SafeDeleteModel):
             field = self._meta.get_field(field_name)
 
             # vérification collision
-            qs = self.__class__._default_manager.filter(
-                **{field_name: old_value}
-            ).exclude(pk=self.pk)
+            qs = self.__class__._default_manager.filter(**{field_name: old_value}).exclude(
+                pk=self.pk
+            )
 
             if qs.exists():
                 raise ValueError(

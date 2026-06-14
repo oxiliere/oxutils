@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.mfa module.
 """
+
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 class TestMFAUtils:

@@ -1,8 +1,8 @@
 """
 Tests for oxutils.auth.mixins module.
 """
-import pytest
-from unittest.mock import Mock, MagicMock, PropertyMock, patch
+
+from unittest.mock import Mock, patch
 
 
 def _configure_mock_settings(mock_settings, **overrides):
@@ -45,12 +45,20 @@ class TestCookieTokenMixin:
         mixin.set_token_cookie(access_token="access123", refresh_token="refresh456")
 
         response.set_cookie.assert_any_call(
-            key="access_token", value="access123",
-            httponly=True, domain="example.com", secure=False, samesite="Lax",
+            key="access_token",
+            value="access123",
+            httponly=True,
+            domain="example.com",
+            secure=False,
+            samesite="Lax",
         )
         response.set_cookie.assert_any_call(
-            key="refresh_token", value="refresh456",
-            httponly=True, domain="example.com", secure=False, samesite="Lax",
+            key="refresh_token",
+            value="refresh456",
+            httponly=True,
+            domain="example.com",
+            secure=False,
+            samesite="Lax",
         )
 
     @patch("oxutils.auth.mixins.settings")
@@ -69,8 +77,12 @@ class TestCookieTokenMixin:
         mixin.set_token_cookie(access_token="access123", refresh_token="refresh456")
 
         response.set_cookie.assert_called_once_with(
-            key="access_token", value="access123",
-            httponly=True, domain="example.com", secure=False, samesite="Lax",
+            key="access_token",
+            value="access123",
+            httponly=True,
+            domain="example.com",
+            secure=False,
+            samesite="Lax",
         )
 
     @patch("oxutils.auth.mixins.settings")
@@ -87,8 +99,12 @@ class TestCookieTokenMixin:
         mixin.set_token_cookie(access_token="access123", refresh_token="refresh456")
 
         response.set_cookie.assert_any_call(
-            key="access_token", value="access123",
-            httponly=True, domain="example.com", secure=True, samesite="Lax",
+            key="access_token",
+            value="access123",
+            httponly=True,
+            domain="example.com",
+            secure=True,
+            samesite="Lax",
         )
 
     @patch("oxutils.auth.mixins.settings")
@@ -104,16 +120,18 @@ class TestCookieTokenMixin:
 
         mixin.remove_token_cookie()
 
-        response.delete_cookie.assert_any_call(key="refresh_token", domain="example.com", samesite="Lax")
-        response.delete_cookie.assert_any_call(key="access_token", domain="example.com", samesite="Lax")
+        response.delete_cookie.assert_any_call(
+            key="refresh_token", domain="example.com", samesite="Lax"
+        )
+        response.delete_cookie.assert_any_call(
+            key="access_token", domain="example.com", samesite="Lax"
+        )
 
     @patch("oxutils.auth.mixins.settings")
     def test_remove_token_cookie_without_refresh(self, mock_settings):
         from oxutils.auth.mixins import CookieTokenMixin
 
-        _configure_mock_settings(
-            mock_settings, JWT_ALLAUTH_REFRESH_TOKEN_AS_COOKIE=False
-        )
+        _configure_mock_settings(mock_settings, JWT_ALLAUTH_REFRESH_TOKEN_AS_COOKIE=False)
 
         mixin = CookieTokenMixin()
         response = Mock()
@@ -143,8 +161,12 @@ class TestCookieTokenMixin:
         mixin.set_token_cookie(access_token="access123", refresh_token="refresh456")
 
         response.set_cookie.assert_any_call(
-            key="access_token", value="access123",
-            httponly=True, domain="example.com", secure=True, samesite="Lax",
+            key="access_token",
+            value="access123",
+            httponly=True,
+            domain="example.com",
+            secure=True,
+            samesite="Lax",
         )
 
     @patch("oxutils.auth.mixins.settings")
@@ -168,6 +190,10 @@ class TestCookieTokenMixin:
         mixin.set_token_cookie(access_token="access123", refresh_token="refresh456")
 
         response.set_cookie.assert_any_call(
-            key="access_token", value="access123",
-            httponly=False, domain="example.com", secure=True, samesite="Strict",
+            key="access_token",
+            value="access123",
+            httponly=False,
+            domain="example.com",
+            secure=True,
+            samesite="Strict",
         )

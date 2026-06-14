@@ -1,8 +1,10 @@
 """
 Tests for oxutils.auth.templatetags module.
 """
+
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch
 
 
 class TestSpaUrlTag:
@@ -33,8 +35,9 @@ class TestSpaUrlTag:
             spa_url("unknown_type")
 
     def test_register_is_template_library(self):
-        from oxutils.auth.templatetags.spa_urls import register
         from django.template import Library
+
+        from oxutils.auth.templatetags.spa_urls import register
 
         assert isinstance(register, Library)
 

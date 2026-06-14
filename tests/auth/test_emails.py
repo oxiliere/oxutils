@@ -1,17 +1,18 @@
 """
 Tests for oxutils.auth.emails module.
 """
-import pytest
-from unittest.mock import Mock, MagicMock, patch
+
+from unittest.mock import Mock, patch
 
 
 class TestEmailAddressSchema:
     """Tests for EmailAddressSchema."""
 
     def test_is_model_schema(self):
-        from oxutils.auth.emails.schemas import EmailAddressSchema
-        from ninja import ModelSchema
         from allauth.account.models import EmailAddress
+        from ninja import ModelSchema
+
+        from oxutils.auth.emails.schemas import EmailAddressSchema
 
         assert issubclass(EmailAddressSchema, ModelSchema)
         assert EmailAddressSchema.Meta.model is EmailAddress
