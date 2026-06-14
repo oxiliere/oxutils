@@ -63,6 +63,10 @@ class CurrencyState(UUIDPrimaryKeyMixin, TimestampMixin):
                 )
                 currencies.append(currency)
 
+            
+            if source == CurrencySource.BCC:
+                currencies.append(Currency(code="CDF", rate=1.0, state=state))
+
             Currency.objects.bulk_create(currencies)
 
             logger.info("currency_state_synced", state=state.id, source=source)

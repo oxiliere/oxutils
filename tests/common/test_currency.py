@@ -202,13 +202,17 @@ class TestCurrencyStateModel(TestCase):
 
         assert state is not None
         assert state.source == CurrencySource.BCC
-        assert state.currencies.count() == 3
+        # BCC source always appends CDF currency, so total = mock_rates + 1
+        assert state.currencies.count() == 4
         
         usd = state.currencies.get(code='USD')
         assert usd.rate == Decimal('1.0000')
         
         eur = state.currencies.get(code='EUR')
         assert eur.rate == Decimal('0.8500')
+
+        cdf = state.currencies.get(code='CDF')
+        assert cdf.rate == Decimal('1.0')
 
     @patch('oxutils.currency.models.load_rates')
     def test_sync_with_oxr_source(self, mock_load_rates):
@@ -259,8 +263,10 @@ class TestCurrencyStateModel(TestCase):
         
         latest = CurrencyState.objects.latest()
         
-        assert latest.id == state2.id
-        assert latest.currencies.count() == 1
+        # latest() orders by created_at DESC, so it should be state2
+        assert latest.pk == state2.pk
+        # BCC appends CDF: 1 mock + 1 CDF = 2
+        assert latest.currencies.count() == 2
 
     @patch('oxutils.currency.models.load_rates')
     def test_sync_with_large_dataset(self, mock_load_rates):
@@ -273,7 +279,8 @@ class TestCurrencyStateModel(TestCase):
 
         state = CurrencyState.sync()
         
-        assert state.currencies.count() == 6
+        # BCC appends CDF: 6 mock + 1 CDF = 7
+        assert state.currencies.count() == 7
         assert CurrencyState.objects.count() == 1
 
 
