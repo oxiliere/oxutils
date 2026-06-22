@@ -1,36 +1,28 @@
 import os
-from typing import Dict, Any, Optional, Type, Tuple, List
-from django.utils.translation import gettext_lazy as _
-from django.http import HttpRequest
-from django.contrib.auth.models import AbstractUser
-from django.contrib.auth import (
-    authenticate as django_authenticate,
-    login as django_login,
-    get_user_model
-)
-from jwcrypto import jwk
-from django.core.exceptions import ImproperlyConfigured
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-from ninja.security.base import AuthBase
-from ninja_jwt.authentication import (
-    JWTBaseAuthentication,
-    JWTStatelessUserAuthentication
-)
+from django.contrib.auth import SESSION_KEY, get_user_model
+from django.contrib.auth import authenticate as django_authenticate
+from django.contrib.auth import login as django_login
+from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpRequest
+from django.utils.translation import gettext_lazy as _
+from jwcrypto import jwk
 from ninja.security import (
-    HttpBearer,
     APIKeyCookie,
     HttpBasicAuth,
+    HttpBearer,
 )
+from ninja.security.base import AuthBase
+from ninja_jwt.authentication import JWTBaseAuthentication, JWTStatelessUserAuthentication
 from ninja_jwt.exceptions import InvalidToken
 from ninja_jwt.settings import api_settings
+
 from oxutils.constants import ACCESS_TOKEN_COOKIE
 from oxutils.settings import oxi_settings
 
-
-
-
 _public_jwk_cache: Optional[jwk.JWK] = None
-
 
 
 def get_jwks() -> Dict[str, Any]:
@@ -53,17 +45,15 @@ def get_jwks() -> Dict[str, Any]:
     key_path = oxi_settings.jwt_verifying_key
 
     if not os.path.exists(key_path):
-        raise ImproperlyConfigured(
-            f"JWT verifying key file not found at: {key_path}"
-        )
+        raise ImproperlyConfigured(f"JWT verifying key file not found at: {key_path}")
 
     if _public_jwk_cache is None:
         try:
-            with open(key_path, 'r') as f:
+            with open(key_path, "r") as f:
                 key_data = f.read()
 
-            _public_jwk_cache = jwk.JWK.from_pem(key_data.encode('utf-8'))
-            _public_jwk_cache.update(kid='main')
+            _public_jwk_cache = jwk.JWK.from_pem(key_data.encode("utf-8"))
+            _public_jwk_cache.update(kid="main")
         except Exception as e:
             raise ImproperlyConfigured(
                 f"Failed to load JWT verifying key from {key_path}: {str(e)}"
@@ -123,7 +113,6 @@ def authenticate_by_x_session_token(token: str) -> Optional[Tuple]:
     """
     from allauth.headless import app_settings
 
-
     session = app_settings.TOKEN_STRATEGY.lookup_session(token)
     if not session:
         return None
@@ -177,7 +166,6 @@ class BasicAuth(HttpBasicAuth):
 
 class BasicNoPasswordAuth(HttpBasicAuth):
     def authenticate(self, request: HttpRequest, username: str, password: str) -> Optional[Any]:
-
         # check if the middleware have already authenticated the user
         if request.user.is_authenticated:
             return request.user
@@ -218,8 +206,6 @@ jwt_cookie_auth = JWTCookieAuth()
 # Production in all oxiliere services
 jwt_passive_auth = JWTPassiveAuth()
 jwt_cookie_passive_auth = JWTCookiePassiveAuth()
-
-
 
 
 def get_auth_handlers(auths: List[AuthBase] = []) -> List[AuthBase]:
