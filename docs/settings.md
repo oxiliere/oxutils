@@ -49,11 +49,7 @@ print(oxi_settings.service_name)  # 'my-service'
 | `OXI_JWT_JWKS_URL` | string | `None` | Remote JWKS URL (optional, used by ninja-jwt). |
 | `OXI_JWT_ALGORITHM` | string | `'RS256'` | JWT signing algorithm. |
 | `OXI_JWT_ACCESS_TOKEN_KEY` | string | `'access'` | Token type for user access tokens. |
-| `OXI_JWT_SERVICE_TOKEN_KEY` | string | `'service'` | Token type for service tokens. |
-| `OXI_JWT_ORG_ACCESS_TOKEN_KEY` | string | `'org_access'` | Token type for organization tokens. |
 | `OXI_JWT_ACCESS_TOKEN_LIFETIME` | int | `15` | Access token lifetime in minutes. |
-| `OXI_JWT_SERVICE_TOKEN_LIFETIME` | int | `3` | Service token lifetime in minutes. |
-| `OXI_JWT_ORG_ACCESS_TOKEN_LIFETIME` | int | `60` | Organization token lifetime in minutes. |
 
 ### Audit Logging
 
@@ -121,7 +117,6 @@ OXI_JWT_JWKS_URL=https://auth.myapp.com/.well-known/jwks.json
 OXI_JWT_VERIFYING_KEY=/etc/keys/public_key.pem
 OXI_JWT_ALGORITHM=RS256
 OXI_JWT_ACCESS_TOKEN_LIFETIME=15
-OXI_JWT_SERVICE_TOKEN_LIFETIME=3
 
 # Audit
 OXI_LOG_ACCESS=True

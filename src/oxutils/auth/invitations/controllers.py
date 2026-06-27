@@ -1,23 +1,25 @@
 """
 Controllers for the invitations module.
 """
-from typing import List
 
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja_extra import (
     ControllerBase,
     api_controller,
-    http_delete,
     http_get,
     http_post,
+)
+from ninja_extra.pagination import (
+    PageNumberPaginationExtra,
+    PaginatedResponseSchema,
+    paginate,
 )
 from ninja_extra.permissions import IsAuthenticated
 from ninja_extra.throttling import AnonRateThrottle, UserRateThrottle
 
 from oxutils.auth.invitations.backend import invitation_backend
 from oxutils.auth.invitations.models import InvitationStatus, get_invitation_model
-from oxutils.auth.signals import invitation_resent
 from oxutils.auth.invitations.schemas import (
     AcceptInvitationSchema,
     CancelInvitationSchema,
@@ -28,6 +30,7 @@ from oxutils.auth.invitations.schemas import (
     ResendInvitationSchema,
     ValidateTokenSchema,
 )
+from oxutils.auth.signals import invitation_resent
 from oxutils.auth.utils import load_user
 from oxutils.exceptions import ExceptionCode
 from oxutils.mixins.schemas import ResponseSchema
@@ -124,31 +127,31 @@ class InvitationController(ControllerBase):
 
     # ── List user invitations ──────────────────────────────────────
 
-    @http_get("", response=InvitationListSchema)
+    @http_get("", response=PaginatedResponseSchema[InvitationOutSchema])
+    @paginate(PageNumberPaginationExtra, page_size=20)
     @load_user
     def list_user_invitations(self, request: HttpRequest):
-        """List all pending invitations for the current user."""
-        qs = invitation_backend.get_user_invitations(request.user)
-        invitations = [InvitationOutSchema.from_orm(inv) for inv in qs]
-        return InvitationListSchema(invitations=invitations, total=len(invitations))
+        """List pending invitations for the current user (paginated)."""
+        return invitation_backend.get_user_invitations(request.user)
 
     # ── List tenant invitations ────────────────────────────────────
 
-    @http_get("/tenant", response=InvitationListSchema)
+    @http_get("/tenant", response=PaginatedResponseSchema[InvitationOutSchema])
+    @paginate(PageNumberPaginationExtra, page_size=20)
     @load_user
     def list_tenant_invitations(self, request: HttpRequest):
-        """List all invitations for the current tenant."""
+        """List invitations for the current tenant (paginated)."""
         tenant = getattr(request, "tenant", None)
         if tenant is None:
-            return InvitationListSchema(invitations=[], total=0)
+            return get_invitation_model().objects.none()
 
-        qs = invitation_backend.get_tenant_invitations(tenant)
-        invitations = [InvitationOutSchema.from_orm(inv) for inv in qs]
-        return InvitationListSchema(invitations=invitations, total=len(invitations))
+        return invitation_backend.get_tenant_invitations(tenant)
 
     # ── Validate token ─────────────────────────────────────────────
 
-    @http_get("/validate/{token}", response=ValidateTokenSchema, auth=None, throttle=[AnonRateThrottle()])
+    @http_get(
+        "/validate/{token}", response=ValidateTokenSchema, auth=None, throttle=[AnonRateThrottle()]
+    )
     def validate_token(self, request: HttpRequest, token: str):
         """Validate an invitation token (public endpoint – no auth required)."""
         invitation = invitation_backend.validate_token(token)
@@ -235,9 +238,9 @@ class InvitationController(ControllerBase):
         }
 
         inviter_level = role_hierarchy.get(
-            InvitationRole.OWNER if membership.is_owner else (
-                InvitationRole.ADMIN if membership.is_admin else InvitationRole.MEMBER
-            ),
+            InvitationRole.OWNER
+            if membership.is_owner
+            else (InvitationRole.ADMIN if membership.is_admin else InvitationRole.MEMBER),
             0,
         )
         requested_level = role_hierarchy.get(requested_role, 0)

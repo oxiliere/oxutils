@@ -1,15 +1,14 @@
 # JWT Authentication
 
-**Stateless JWT authentication with ninja-jwt and custom token types**
+**Stateless JWT authentication with ninja-jwt**
 
 ## Features
 
 - Stateless JWT authentication (no database lookup)
 - RS256 algorithm (RSA public/private keys)
 - JWKS generation from PEM files with caching
-- Multiple token types (Access, Service, Organization)
 - Django Ninja integration with Bearer and Cookie auth
-- Custom TokenUser and TokenTenant models
+- Custom TokenUser model
 - User population decorator for full user loading
 
 ## Configuration
@@ -30,16 +29,12 @@
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `OXI_JWT_ACCESS_TOKEN_KEY` | string | `'access'` | Token type for user access tokens. |
-| `OXI_JWT_SERVICE_TOKEN_KEY` | string | `'service'` | Token type for service tokens. |
-| `OXI_JWT_ORG_ACCESS_TOKEN_KEY` | string | `'org_access'` | Token type for organization/tenant tokens. |
 
 #### Token Lifetime
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `OXI_JWT_ACCESS_TOKEN_LIFETIME` | int | `15` | Access token lifetime in minutes. |
-| `OXI_JWT_SERVICE_TOKEN_LIFETIME` | int | `3` | Service token lifetime in minutes. |
-| `OXI_JWT_ORG_ACCESS_TOKEN_LIFETIME` | int | `60` | Organization token lifetime in minutes. |
 
 ### Example Configuration
 
@@ -51,13 +46,9 @@ OXI_JWT_ALGORITHM=RS256
 
 # Token types
 OXI_JWT_ACCESS_TOKEN_KEY=access
-OXI_JWT_SERVICE_TOKEN_KEY=service
-OXI_JWT_ORG_ACCESS_TOKEN_KEY=org_access
 
 # Token lifetimes (in minutes)
 OXI_JWT_ACCESS_TOKEN_LIFETIME=15
-OXI_JWT_SERVICE_TOKEN_LIFETIME=3
-OXI_JWT_ORG_ACCESS_TOKEN_LIFETIME=60
 ```
 
 ## Token Types
@@ -71,30 +62,6 @@ from ninja_jwt.tokens import AccessToken
 
 token = AccessToken.for_user(user)
 print(token)  # eyJ0eXAiOiJKV1QiLCJhbGc...
-```
-
-### OxilierServiceToken
-
-Token for inter-service authentication.
-
-```python
-from oxutils.jwt.tokens import OxilierServiceToken
-
-token = OxilierServiceToken.for_service({
-    'service_name': 'my-service',
-    'permissions': ['read', 'write']
-})
-```
-
-### OrganizationAccessToken
-
-Token for tenant/organization authentication (multitenancy).
-
-```python
-from oxutils.jwt.tokens import OrganizationAccessToken
-
-token = OrganizationAccessToken.for_tenant(tenant)
-# Includes: tenant_id, oxi_id, schema_name, subscription info, status
 ```
 
 ## Authentication Classes
@@ -146,19 +113,6 @@ from oxutils.jwt.models import TokenUser
 user.id  # UUID from token
 user.token_created_at  # Token creation timestamp
 user.token_session  # Session identifier
-```
-
-### TokenTenant
-
-Stateless tenant based on organization token.
-
-```python
-from oxutils.jwt.models import TokenTenant
-
-tenant = TokenTenant.for_token(org_token)
-print(tenant.schema_name)
-print(tenant.oxi_id)
-print(tenant.subscription_plan)
 ```
 
 ## User Population
@@ -240,36 +194,6 @@ def get_profile(request):
         "first_name": request.user.first_name,
         "last_name": request.user.last_name
     }
-```
-
-### Service Token
-
-```python
-from oxutils.jwt.tokens import OxilierServiceToken
-
-# Create service token
-token = OxilierServiceToken.for_service({
-    'service': 'payment-service',
-    'action': 'process_payment'
-})
-
-# Use in requests
-headers = {'Authorization': f'Bearer {token}'}
-```
-
-### Organization Token
-
-```python
-from oxutils.jwt.tokens import OrganizationAccessToken
-from oxutils.jwt.models import TokenTenant
-
-# Create org token
-token = OrganizationAccessToken.for_tenant(tenant)
-
-# Parse org token
-tenant = TokenTenant.for_token(str(token))
-print(f"Tenant: {tenant.schema_name}")
-print(f"Plan: {tenant.subscription_plan}")
 ```
 
 ## Generate RSA Keys

@@ -1,22 +1,21 @@
 """
 Schemas for the invitations module.
 """
-from datetime import datetime
-from typing import List, Optional
-from uuid import UUID
 
+from typing import List, Optional
+
+from django.utils.translation import gettext_lazy as _
 from ninja import ModelSchema, Schema
 from pydantic import EmailStr, field_validator
-from django.utils.translation import gettext_lazy as _
 
-from oxutils.auth.invitations.models import BaseInvitation, InvitationRole, InvitationStatus
-
+from oxutils.auth.invitations.models import BaseInvitation, InvitationRole
 
 # ── Request schemas ────────────────────────────────────────────────
 
+
 class CreateInvitationSchema(Schema):
     email: EmailStr
-    role: str = InvitationRole.MEMBER
+    role: InvitationRole = InvitationRole.MEMBER
     message: str = ""
 
     @field_validator("email", mode="before")
@@ -28,9 +27,9 @@ class CreateInvitationSchema(Schema):
     @classmethod
     def validate_role(cls, v: str) -> str:
         if v not in InvitationRole.values:
-            raise ValueError(_("Invalid role. Must be one of: {}").format(
-                ", ".join(InvitationRole.values)
-            ))
+            raise ValueError(
+                _("Invalid role. Must be one of: {}").format(", ".join(InvitationRole.values))
+            )
         return v
 
 
@@ -48,6 +47,7 @@ class ResendInvitationSchema(Schema):
 
 # ── Response schemas ───────────────────────────────────────────────
 
+
 class InvitationOutSchema(ModelSchema):
     tenant_name: Optional[str] = None
     invited_by_email: Optional[str] = None
@@ -56,8 +56,15 @@ class InvitationOutSchema(ModelSchema):
     class Meta:
         model = BaseInvitation
         fields = [
-            "id", "email", "token", "status", "role",
-            "expires_at", "accepted_at", "created_at", "message",
+            "id",
+            "email",
+            "token",
+            "status",
+            "role",
+            "expires_at",
+            "accepted_at",
+            "created_at",
+            "message",
         ]
 
     @staticmethod
