@@ -1,10 +1,11 @@
 """
 Invitation backend – service layer for invitation lifecycle management.
 """
-import structlog
+
 from datetime import timedelta
 from typing import Optional
 
+import structlog
 from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
@@ -13,15 +14,15 @@ from django.utils.translation import gettext_lazy as _
 
 from oxutils.auth.invitations.models import (
     BaseInvitation,
-    InvitationStatus,
     InvitationRole,
+    InvitationStatus,
     get_invitation_model,
 )
 from oxutils.auth.invitations.tokens import InvitationTokenGenerator
 from oxutils.auth.signals import (
-    invitation_sent,
     invitation_accepted,
     invitation_rejected,
+    invitation_sent,
 )
 
 logger = structlog.get_logger(__name__)
@@ -103,9 +104,7 @@ class InvitationBackend:
             user_id=str(user.pk),
             tenant=getattr(invitation.tenant, "oxi_id", str(invitation.tenant)),
         )
-        invitation_accepted.send_robust(
-            sender=self.__class__, invitation=invitation, user=user
-        )
+        invitation_accepted.send_robust(sender=self.__class__, invitation=invitation, user=user)
         return invitation
 
     def cancel_invitation(self, token: str, cancelled_by):
@@ -134,9 +133,7 @@ class InvitationBackend:
         from allauth.account.models import EmailAddress
 
         Invitation = get_invitation_model()
-        emails = list(
-            EmailAddress.objects.filter(user=user).values_list("email", flat=True)
-        )
+        emails = list(EmailAddress.objects.filter(user_id=user.pk).values_list("email", flat=True))
         if user.email:
             emails.append(user.email)
 
@@ -149,7 +146,9 @@ class InvitationBackend:
     def get_tenant_invitations(self, tenant) -> QuerySet:
         """Return all invitations for a tenant."""
         Invitation = get_invitation_model()
-        return Invitation.objects.filter(tenant=tenant).select_related("invited_by", "invitee")
+        return Invitation.objects.filter(tenant_id=tenant.pk).select_related(
+            "invited_by", "invitee"
+        )
 
     def expire_stale_invitations(self) -> int:
         """Mark all expired pending invitations as EXPIRED. Returns count."""
@@ -185,9 +184,7 @@ class InvitationBackend:
 
     def _get_pending_invitation(self, token: str):
         Invitation = get_invitation_model()
-        invitation = Invitation.objects.filter(
-            token=token, status=InvitationStatus.PENDING
-        ).first()
+        invitation = Invitation.objects.filter(token=token, status=InvitationStatus.PENDING).first()
         if invitation is None:
             raise ValueError(_("No pending invitation found with this token."))
         return invitation

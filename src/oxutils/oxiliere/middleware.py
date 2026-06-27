@@ -14,13 +14,13 @@ from django_tenants.utils import (
     has_multi_type_tenants,
 )
 
-from oxutils.constants import ORGANIZATION_HEADER_KEY, ORGANIZATION_TOKEN_COOKIE_KEY
-from oxutils.jwt.models import TokenTenant
-from oxutils.jwt.tokens import OrganizationAccessToken
+from oxutils.constants import ORGANIZATION_HEADER_KEY
+from oxutils.oxiliere.cacheops import (
+    delete_cached_tenant_token,
+    get_cached_tenant_token,
+)
 from oxutils.oxiliere.context import set_current_tenant_schema_name
 from oxutils.oxiliere.enums import TenantStatus
-from oxutils.oxiliere.utils import is_system_tenant
-from oxutils.settings import oxi_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -69,112 +69,60 @@ class TenantMainMiddleware(MiddlewareMixin):
         connection.set_schema_to_public()
 
         oxi_id = self.get_org_id_from_request(request)
-
-        # Try to get tenant from cookie token first
-        tenant_token = request.COOKIES.get(ORGANIZATION_TOKEN_COOKIE_KEY)
         tenant = None
-        old_tenant = None
-        request._should_set_tenant_cookie = False
 
-        if tenant_token:
-            tenant = TokenTenant.for_token(tenant_token)
-            # Verify the token's oxi_id matches the request
-            if tenant and not is_system_tenant(tenant) and tenant.oxi_id != oxi_id:
-                logger.info(
-                    "tenant_token_oxi_id_doesnt_match_request_oxi_id",
-                    tenant_oxi_id=tenant.oxi_id,
-                    request_oxi_id=oxi_id,
-                )
-                old_tenant = tenant
-                tenant = None
+        # ── Normal path: org + user → cache (or DB on miss) ──────────
+        if oxi_id and hasattr(request, "user") and request.user and request.user.is_authenticated:
+            user_id = str(request.user.id)
+            try:
+                tenant = get_cached_tenant_token(oxi_id, user_id)
+            except ObjectDoesNotExist:
+                logger.info("tenant_not_found", oxi_id=oxi_id, user_id=user_id)
+                return self.no_tenant_found(request, oxi_id)
 
-            if (
-                tenant
-                and hasattr(request, "user")
-                and request.user
-                and tenant.user.oxi_id != request.user.id
-            ):
-                logger.info(
-                    "tenant_user_token_oxi_id_doesnt_match",
-                    tenant_oxi_id=tenant.oxi_id,
-                    user_oxi_id=request.user.id,
-                )
-                old_tenant = tenant
-                tenant = None
+        elif not oxi_id:
+            # ── No org header → system tenant ────────────────────────
+            try:
+                from oxutils.oxiliere.caches import get_system_tenant
 
-        # If no valid token, fetch from database
-        if not tenant:
-            if oxi_id:  # fetch with oxi_id on tenant
-                try:
-                    tenant = self.get_tenant(oxi_id)
-                    tenant.user = self.get_tenant_user(tenant, request.user, raise_exception=True)
+                tenant = get_system_tenant()
 
-                    # Mark that we need to set the cookie in the response
-                    request._should_set_tenant_cookie = True
+                if hasattr(request, "user") and request.user:
+                    tenant.user = self.get_tenant_user(
+                        tenant, request.user, raise_exception=False
+                    )
+                else:
+                    tenant.user = None
+            except Exception as e:
+                logger.error("system_tenant_not_found", error=str(e))
+                from django.http import HttpResponseBadRequest
 
-                    if old_tenant:
-                        logger.info(
-                            "tenant_changed", old_tenant=old_tenant.oxi_id, new_tenant=tenant.oxi_id
-                        )
-
-                except ObjectDoesNotExist as ex:
-                    logger.error("tenant_not_found", oxi_id=oxi_id, error=str(ex))
-                    default_tenant = self.no_tenant_found(request, oxi_id)
-                    return default_tenant
-            else:  # try to return the system tenant
-                try:
-                    from oxutils.oxiliere.caches import get_system_tenant
-
-                    tenant = get_system_tenant()
-
-                    if hasattr(request, "user") and request.user:
-                        tenant.user = self.get_tenant_user(
-                            tenant, request.user, raise_exception=False
-                        )
-                    else:
-                        tenant.user = None
-
-                    request._should_set_tenant_cookie = True
-                except Exception as e:
-                    logger.error("system_tenant_not_found", error=str(e))
-                    from django.http import HttpResponseBadRequest
-
-                    return HttpResponseBadRequest("Missing X-Organization-ID header")
-
-        if tenant.is_deleted or not tenant.is_active:
-            logger.error("tenant_is_deleted_or_inactive", oxi_id=oxi_id)
+                return HttpResponseBadRequest("Missing X-Organization-ID header")
+        else:
+            # oxi_id present but no authenticated user
             return self.no_tenant_found(request, oxi_id)
 
-        # Delegate status-specific responses
+        # ── Status guards ─────────────────────────────────────────────
+        if tenant.is_deleted or not tenant.is_active:
+            logger.error("tenant_is_deleted_or_inactive", oxi_id=oxi_id)
+            if oxi_id and hasattr(request, "user") and request.user and request.user.is_authenticated:
+                delete_cached_tenant_token(oxi_id, str(request.user.id))
+            return self.no_tenant_found(request, oxi_id)
+
         status_response = self._handle_tenant_status(request, tenant)
         if status_response is not None:
             return status_response
 
-        if tenant and isinstance(tenant, TokenTenant):
-            request.db_tenant = None
-            request.tenant = tenant
-        else:
-            request.db_tenant = tenant
-            request.tenant = TokenTenant.from_db(tenant)
+        # ── Attach tenant to request ──────────────────────────────────
+        request.db_tenant = None
+        request.tenant = tenant
 
         set_current_tenant_schema_name(tenant.schema_name)
         connection.set_tenant(request.tenant)
         self.setup_url_routing(request)
 
     def process_response(self, request, response):
-        """Set the tenant token cookie if needed."""
-        if hasattr(request, "_should_set_tenant_cookie") and request._should_set_tenant_cookie:
-            if hasattr(request, "db_tenant") and isinstance(request.db_tenant, self.tenant_model):
-                # Generate token from DB tenant
-                token = OrganizationAccessToken.for_tenant(request.db_tenant)
-                response.set_cookie(
-                    key=ORGANIZATION_TOKEN_COOKIE_KEY,
-                    value=str(token),
-                    max_age=60 * oxi_settings.jwt_org_access_token_lifetime,
-                    httponly=True,
-                    secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
-                    samesite="Lax",
-                )
+        """Cache is handled by :func:`get_cached_tenant_token` — nothing to do."""
         return response
 
     def no_tenant_found(self, request, oxi_id):

@@ -339,7 +339,7 @@ DEFAULT_NOT_FOUND_TENANT_VIEW = 'myapp.views.tenant_not_found'
 
 ## Permissions
 
-The permission system uses `TokenTenant` from the middleware to verify user access rights. All tenant permissions check that `request.tenant` is a valid `TokenTenant` instance with the appropriate user relationship.
+The permission system checks that ``request.tenant`` has an attached ``.user`` (the matching *TenantUser* row) and verifies access rights through its attributes.
 
 ### Available Permission Classes
 
@@ -348,7 +348,6 @@ The permission system uses `TokenTenant` from the middleware to verify user acce
 | `TenantUserPermission` / `IsTenantUser` | User is a member of the current tenant | General tenant access |
 | `TenantOwnerPermission` / `IsTenantOwner` | User is the owner of the tenant | Sensitive operations |
 | `TenantAdminPermission` / `IsTenantAdmin` | User is admin or owner of the tenant | Administrative functions |
-| `OxiliereServicePermission` / `IsOxiliereService` | Request from internal Oxiliere service | Internal APIs |
 
 ### TenantUserPermission (IsTenantUser)
 
@@ -376,8 +375,8 @@ class ProductController:
 
 **Requirements:**
 - `request.user` must be authenticated
-- `request.tenant` must be a `TokenTenant` instance
-- `request.tenant.user` must exist and be active (`is_tenant_user` property)
+- `request.tenant` must have a ``.user`` attribute
+- `request.tenant.user.status` must be ``"active"``
 
 ### TenantOwnerPermission (IsTenantOwner)
 
@@ -417,27 +416,6 @@ class UserManagementController:
 - All `TenantUserPermission` requirements
 - `request.tenant.user.is_admin` must be `True`
 
-### OxiliereServicePermission (IsOxiliereService)
-
-Verifies request comes from an internal Oxiliere service.
-
-```python
-from oxutils.oxiliere.permissions import OxiliereServicePermission, IsOxiliereService
-
-@api_controller('/setup', permissions=[IsOxiliereService])
-class SetupController:
-    @http_post('/init')
-    def init_tenant(self, payload):
-        # Only internal services can access
-        # Requires X-Oxiliere-Service-Token header
-        pass
-```
-
-**Header Required:**
-```http
-X-Oxiliere-Service-Token: <service-token>
-```
-
 ### Custom Tenant Permissions
 
 Extend `TenantBasePermission` to create custom tenant-based permissions:
@@ -463,13 +441,13 @@ class BillingController:
 
 1. **Base Check** (`TenantBasePermission.has_permission`):
    - Verifies `request.user.is_authenticated`
-   - Verifies `request.tenant` exists and is a `TokenTenant`
+   - Verifies ``request.tenant`` exists and has an attached ``.user``
    - Calls `check_tenant_permission()` for specific logic
 
-2. **TokenTenant Properties**:
-   - `is_tenant_user`: True if user exists and is active
-   - `is_owner_user`: True if user is owner
-   - `is_admin_user`: True if user is admin
+2. **Tenant-user attributes** (on ``request.tenant.user``):
+   - ``status == "active"`` — user is an active member
+   - ``is_owner`` — user is the tenant owner
+   - ``is_admin`` — user has admin rights
 
 3. **Logging**: All permission checks are logged with structured logging:
    ```python

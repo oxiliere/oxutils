@@ -143,35 +143,29 @@ class TestTenantMainMiddleware(TestCase):
         from django.http import Http404
 
         mock_connection.set_schema_to_public = Mock()
-        mock_connection.tenant_model = Mock()
-        mock_connection.tenant_model.DoesNotExist = Http404
 
         request = self.factory.get("/", HTTP_X_ORGANIZATION_ID="nonexistent")
-        request.user = Mock()  # Add user attribute
+        request.user = Mock()
+        request.user.is_authenticated = True
+        request.user.id = "00000000-0000-0000-0000-000000000000"
 
-        with patch.object(self.middleware, "get_tenant") as mock_get_tenant:
-            mock_get_tenant.side_effect = Http404
-
+        with patch(
+            "oxutils.oxiliere.middleware.get_cached_tenant_token",
+            side_effect=Http404,
+        ):
             with pytest.raises(Http404):
                 self.middleware.process_request(request)
 
     @patch("oxutils.oxiliere.middleware.connection")
     def test_successful_tenant_switch(self, mock_connection):
         """Test successful tenant schema switch."""
-        from django.contrib.auth.models import AnonymousUser
-
-        from oxutils.jwt.models import TokenTenant
-
         mock_connection.set_schema_to_public = Mock()
-
-        # Create a real class for tenant_model and mock_tenant so isinstance works
-        TenantModel = type("TenantModel", (), {})
-        mock_connection.tenant_model = TenantModel
         mock_connection.set_tenant = Mock()
 
-        # Create mock_tenant as instance of TenantModel so isinstance works
-        mock_tenant = Mock(spec=TenantModel)
+        # Create mock_tenant that the cache function will return
+        mock_tenant = Mock()
         mock_tenant.id = "test-id"
+        mock_tenant.name = "test-tenant"
         mock_tenant.oxi_id = "acme-corp"
         mock_tenant.schema_name = "tenant_acmecorp"
         mock_tenant.is_deleted = False
@@ -182,21 +176,25 @@ class TestTenantMainMiddleware(TestCase):
         mock_tenant.status = "active"
 
         request = self.factory.get("/", HTTP_X_ORGANIZATION_ID="acme-corp")
-        request.user = AnonymousUser()  # Add user attribute
+        request.user = Mock()
+        request.user.is_authenticated = True
+        request.user.id = "00000000-0000-0000-0000-000000000001"
 
-        with patch.object(self.middleware, "get_tenant", return_value=mock_tenant):
-            with patch.object(self.middleware, "get_tenant_user", return_value=Mock()):
-                with patch.object(self.middleware, "setup_url_routing"):
-                    with patch("oxutils.oxiliere.middleware.set_current_tenant_schema_name"):
-                        self.middleware.process_request(request)
+        with patch(
+            "oxutils.oxiliere.middleware.get_cached_tenant_token",
+            return_value=mock_tenant,
+        ):
+            with patch.object(self.middleware, "setup_url_routing"):
+                with patch("oxutils.oxiliere.middleware.set_current_tenant_schema_name"):
+                    self.middleware.process_request(request)
 
-        # Check that request.tenant is now a TokenTenant (not the original mock)
-        assert isinstance(request.tenant, TokenTenant)
+        # Check that request.tenant is the DB tenant (no TokenTenant wrapper anymore)
+        assert request.tenant == mock_tenant
         assert request.tenant.oxi_id == "acme-corp"
         assert request.tenant.schema_name == "tenant_acmecorp"
 
-        # Check that request.db_tenant is the original DB tenant
-        assert request.db_tenant == mock_tenant
+        # request.db_tenant is always None when tenant comes from cache/DB
+        assert request.db_tenant is None
 
 
 @pytest.mark.django_db

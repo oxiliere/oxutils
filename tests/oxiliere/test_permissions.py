@@ -6,20 +6,34 @@ from unittest.mock import Mock
 
 from django.contrib.auth.models import AnonymousUser
 
-from oxutils.constants import OXILIERE_SERVICE_TOKEN
-from oxutils.jwt.models import TenantUser, TokenTenant
-from oxutils.jwt.tokens import OxilierServiceToken
 from oxutils.oxiliere.permissions import (
-    IsOxiliereService,
     IsTenantAdmin,
     IsTenantOwner,
     IsTenantUser,
-    OxiliereServicePermission,
     TenantAdminPermission,
     TenantBasePermission,
     TenantOwnerPermission,
     TenantUserPermission,
 )
+
+
+def _mock_tenant_user(status="active", is_owner=False, is_admin=False):
+    """Build a mock TenantUser row (the DB model, attached as tenant.user)."""
+    tu = Mock()
+    tu.status = status
+    tu.is_owner = is_owner
+    tu.is_admin = is_admin
+    return tu
+
+
+def _mock_tenant(tenant_user=None):
+    """Build a mock DB tenant with an optional .user attribute."""
+    tenant = Mock()
+    tenant.oxi_id = "test-org"
+    tenant.schema_name = "test_schema"
+    if tenant_user is not None:
+        tenant.user = tenant_user
+    return tenant
 
 
 class TestTenantBasePermission:
@@ -73,8 +87,8 @@ class TestTenantBasePermission:
 
         assert result is False
 
-    def test_tenant_not_token_tenant_denied(self):
-        """Test permission denied when tenant is not a TokenTenant."""
+    def test_tenant_without_user_denied(self):
+        """Test permission denied when tenant has no .user attached."""
 
         class TestPermission(TenantBasePermission):
             def check_tenant_permission(self, request):
@@ -86,7 +100,7 @@ class TestTenantBasePermission:
 
         mock_request = Mock()
         mock_request.user = mock_user
-        mock_request.tenant = Mock()  # Not a TokenTenant
+        mock_request.tenant = Mock(spec=[])  # no .user attribute
 
         result = permission.has_permission(mock_request)
 
@@ -96,28 +110,12 @@ class TestTenantBasePermission:
 class TestTenantUserPermission:
     """Test TenantUserPermission / IsTenantUser."""
 
-    def _create_tenant(self, tenant_user=None):
-        """Helper to create TokenTenant."""
-        return TokenTenant(
-            schema_name="test_schema",
-            tenant_id="100",
-            oxi_id="test-org",
-            subscription_plan="basic",
-            subscription_status="active",
-            subscription_end_date="2025-12-31",
-            status="active",
-            user=tenant_user,
-        )
-
     def test_permission_granted_for_active_tenant_user(self):
         """Test permission granted for active tenant user."""
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=False, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active"))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -133,10 +131,7 @@ class TestTenantUserPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=False, status="inactive"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="inactive"))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -152,7 +147,7 @@ class TestTenantUserPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant = self._create_tenant(None)  # No tenant user
+        tenant = _mock_tenant(None)  # No tenant user
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -168,10 +163,7 @@ class TestTenantUserPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=False, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active"))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -185,28 +177,12 @@ class TestTenantUserPermission:
 class TestTenantAdminPermission:
     """Test TenantAdminPermission / IsTenantAdmin."""
 
-    def _create_tenant(self, tenant_user=None):
-        """Helper to create TokenTenant."""
-        return TokenTenant(
-            schema_name="test_schema",
-            tenant_id="100",
-            oxi_id="test-org",
-            subscription_plan="basic",
-            subscription_status="active",
-            subscription_end_date="2025-12-31",
-            status="active",
-            user=tenant_user,
-        )
-
     def test_permission_granted_for_admin(self):
         """Test permission granted for admin."""
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=True, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -222,10 +198,7 @@ class TestTenantAdminPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=False, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_admin=False))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -241,10 +214,7 @@ class TestTenantAdminPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=True, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -258,28 +228,12 @@ class TestTenantAdminPermission:
 class TestTenantOwnerPermission:
     """Test TenantOwnerPermission / IsTenantOwner."""
 
-    def _create_tenant(self, tenant_user=None):
-        """Helper to create TokenTenant."""
-        return TokenTenant(
-            schema_name="test_schema",
-            tenant_id="100",
-            oxi_id="test-org",
-            subscription_plan="basic",
-            subscription_status="active",
-            subscription_end_date="2025-12-31",
-            status="active",
-            user=tenant_user,
-        )
-
     def test_permission_granted_for_owner(self):
         """Test permission granted for owner."""
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=True, is_admin=False, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -295,10 +249,7 @@ class TestTenantOwnerPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=True, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=False, is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -314,10 +265,7 @@ class TestTenantOwnerPermission:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=True, is_admin=False, status="active"
-        )
-        tenant = self._create_tenant(tenant_user)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -328,145 +276,15 @@ class TestTenantOwnerPermission:
         assert result is True
 
 
-class TestOxiliereServicePermission:
-    """Test OxiliereServicePermission class."""
-
-    def test_permission_valid_service_token_from_header(self):
-        """Test permission granted with valid service token from header."""
-        permission = OxiliereServicePermission()
-
-        # Create valid service token
-        token = OxilierServiceToken.for_service({"service": "test"})
-        token_str = str(token)
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = token_str
-        mock_request.META.get.return_value = None
-
-        result = permission.has_permission(mock_request)
-
-        assert result is True
-        mock_request.headers.get.assert_called_once_with(OXILIERE_SERVICE_TOKEN)
-
-    def test_permission_valid_service_token_from_meta(self):
-        """Test permission granted with valid service token from META."""
-        permission = OxiliereServicePermission()
-
-        # Create valid service token
-        token = OxilierServiceToken.for_service({"service": "test"})
-        token_str = str(token)
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = None
-        mock_request.META.get.return_value = token_str
-
-        result = permission.has_permission(mock_request)
-
-        assert result is True
-
-    def test_permission_invalid_service_token(self):
-        """Test permission denied with invalid service token."""
-        permission = OxiliereServicePermission()
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = "invalid.token.string"
-        mock_request.META.get.return_value = None
-
-        result = permission.has_permission(mock_request)
-
-        assert result is False
-
-    def test_permission_no_service_token(self):
-        """Test permission denied when no service token provided."""
-        permission = OxiliereServicePermission()
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = None
-        mock_request.META.get.return_value = None
-
-        result = permission.has_permission(mock_request)
-
-        assert result is False
-
-    def test_permission_expired_service_token(self):
-        """Test permission denied with expired service token."""
-        permission = OxiliereServicePermission()
-
-        # Create expired token
-        from datetime import datetime, timedelta
-
-        token = OxilierServiceToken.for_service({"service": "test"})
-        token.payload["exp"] = datetime.now() - timedelta(hours=1)
-        token_str = str(token)
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = token_str
-        mock_request.META.get.return_value = None
-
-        result = permission.has_permission(mock_request)
-
-        assert result is False
-
-    def test_permission_header_name_conversion(self):
-        """Test correct header name conversion for META."""
-        permission = OxiliereServicePermission()
-
-        token = OxilierServiceToken.for_service({"service": "test"})
-        token_str = str(token)
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = None
-
-        # Mock META to capture the key used
-        meta_dict = {}
-        mock_request.META.get = lambda key: meta_dict.get(key)
-
-        # Set token in META with converted key
-        expected_meta_key = "HTTP_" + OXILIERE_SERVICE_TOKEN.upper().replace("-", "_")
-        meta_dict[expected_meta_key] = token_str
-
-        result = permission.has_permission(mock_request)
-
-        assert result is True
-
-    def test_singleton_instance_works(self):
-        """Test IsOxiliereService singleton instance."""
-        token = OxilierServiceToken.for_service({"service": "test"})
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = str(token)
-        mock_request.META.get.return_value = None
-
-        result = IsOxiliereService.has_permission(mock_request)
-
-        assert result is True
-
-
 class TestPermissionIntegration:
     """Test permission integration scenarios."""
-
-    def _create_tenant(self, is_owner=False, is_admin=False, status="active"):
-        """Helper to create TokenTenant with user."""
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=is_owner, is_admin=is_admin, status=status
-        )
-        return TokenTenant(
-            schema_name="test_schema",
-            tenant_id="100",
-            oxi_id="test-org",
-            subscription_plan="basic",
-            subscription_status="active",
-            subscription_end_date="2025-12-31",
-            status="active",
-            user=tenant_user,
-        )
 
     def test_owner_has_all_permissions(self):
         """Test owner passes all permission checks."""
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant = self._create_tenant(is_owner=True, is_admin=True)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=True, is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -481,7 +299,7 @@ class TestPermissionIntegration:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant = self._create_tenant(is_owner=False, is_admin=True)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=False, is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -496,7 +314,7 @@ class TestPermissionIntegration:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant = self._create_tenant(is_owner=False, is_admin=False)
+        tenant = _mock_tenant(_mock_tenant_user(status="active", is_owner=False, is_admin=False))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -511,7 +329,7 @@ class TestPermissionIntegration:
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant = self._create_tenant(is_owner=True, is_admin=True, status="inactive")
+        tenant = _mock_tenant(_mock_tenant_user(status="inactive", is_owner=True, is_admin=True))
 
         mock_request = Mock()
         mock_request.user = mock_user
@@ -521,39 +339,12 @@ class TestPermissionIntegration:
         assert IsTenantOwner.has_permission(mock_request) is False
         assert IsTenantAdmin.has_permission(mock_request) is False
 
-    def test_service_permission_independent_of_user(self):
-        """Test service permission works independently of user permission."""
-        token = OxilierServiceToken.for_service({"service": "api"})
-
-        mock_request = Mock()
-        mock_request.headers.get.return_value = str(token)
-        mock_request.META.get.return_value = None
-        mock_request.user = AnonymousUser()  # No user
-
-        # Service permission should pass even without user
-        assert IsOxiliereService.has_permission(mock_request) is True
-
-        # But tenant permission should fail
-        assert IsTenantUser.has_permission(mock_request) is False
-
     def test_kwargs_passed_to_permission(self):
         """Test that kwargs are properly handled by permissions."""
         mock_user = Mock()
         mock_user.is_authenticated = True
 
-        tenant_user = TenantUser(
-            oxi_id="user-123", id="1", is_owner=False, is_admin=False, status="active"
-        )
-        tenant = TokenTenant(
-            schema_name="test_schema",
-            tenant_id="100",
-            oxi_id="test-org",
-            subscription_plan="basic",
-            subscription_status="active",
-            subscription_end_date="2025-12-31",
-            status="active",
-            user=tenant_user,
-        )
+        tenant = _mock_tenant(_mock_tenant_user(status="active"))
 
         mock_request = Mock()
         mock_request.user = mock_user
