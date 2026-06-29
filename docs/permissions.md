@@ -8,6 +8,8 @@
 - Group management for bulk role assignment
 - Custom grant overrides per user
 - RoleGrant templates for role permissions
+- Activate / deactivate grants per user without deleting them
+- Application namespacing via `Role.app`
 - Automatic synchronization after changes
 - Bulk operations for performance
 - Full traceability with `created_by` tracking
@@ -44,6 +46,7 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
 ### Models
 
 **Role**: Named set of permissions (e.g., `admin`, `editor`)
+- `app`: optional namespace (e.g., `'blog'`, `'cms'`) — used to filter grants by application
 
 **Group**: Collection of roles for easier assignment (e.g., `staff`)
 
@@ -53,6 +56,7 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
 **Grant**: Effective user permission on a scope
 - **Inherited**: `locked = False` (from RoleGrant, can be modified by group_sync)
 - **Custom**: `locked = True` (after override, protected from group_sync)
+- `is_active`: toggle grant on/off without deleting (default `True`)
 
 **UserGroup**: Links user to group for traceability
 
@@ -461,6 +465,38 @@ deleted_count, info = revoke_role(user, 'editor', 'articles')
 deleted_count, info = revoke_group(user, 'staff')
 ```
 
+### Activate / Deactivate Permissions
+
+Toggle grants on/off without deleting them.  Inactive grants are ignored
+by `check()` and `any_action_check()`.
+
+```python
+from oxutils.permissions.utils import (
+    activate_user_permissions,
+    deactivate_user_permissions,
+)
+
+# Deactivate ALL grants for a user
+deactivate_user_permissions(user)
+assert not check(user, 'articles', ['r'])
+
+# Reactivate
+activate_user_permissions(user)
+assert check(user, 'articles', ['r'])
+
+# Deactivate only grants for a specific scope
+deactivate_user_permissions(user, scope='articles')
+
+# Deactivate only grants whose role belongs to a given app
+deactivate_user_permissions(user, app='blog')
+
+# Both filters can be combined
+activate_user_permissions(user, scope='articles', app='cms')
+```
+
+Both functions are **passive**: they never raise an exception, even when
+no grant matches the given filters.
+
 ### Override User Permissions
 
 ```python
@@ -653,11 +689,13 @@ group_sync('staff')
 ### Handle Permission Abuse
 
 ```python
-# User abuses permissions, set restricted actions
+# Option 1: Override with restricted actions (permanent until manually reverted)
 override_grant(user, 'articles', actions=['r', 'w'])
 
-# Grant becomes locked (locked=True)
-# Future group syncs won't affect this user's permissions on 'articles'
+# Option 2: Temporarily deactivate (preserves original actions, reversible)
+deactivate_user_permissions(user, scope='articles')
+# … investigation period …
+activate_user_permissions(user, scope='articles')
 ```
 
 ### Temporary Elevated Access
@@ -902,6 +940,16 @@ grant = Grant.objects.get(user=user, scope='articles')
 print(grant.role)  # Should be None for custom grant
 ```
 
+### Check Returns False Despite Existing Grant
+
+```python
+# The grant may be inactive
+grant = Grant.objects.get(user=user, scope='articles')
+if not grant.is_active:
+    # Reactivate it
+    activate_user_permissions(user, scope='articles')
+```
+
 ### Cache Not Working
 
 ```python
@@ -945,7 +993,13 @@ Key migrations:
 
 ```python
 from django.test import TestCase
-from oxutils.permissions.utils import assign_role, check
+from oxutils.permissions.utils import (
+    activate_user_permissions,
+    deactivate_user_permissions,
+    assign_role,
+    check,
+    override_grant,
+)
 
 class PermissionsTest(TestCase):
     def setUp(self):
@@ -966,9 +1020,18 @@ class PermissionsTest(TestCase):
     def test_override(self):
         assign_role(self.user, 'editor', 'articles')
         override_grant(self.user, 'articles', actions=['r'])
-        
+
         self.assertTrue(check(self.user, 'articles', ['r']))
         self.assertFalse(check(self.user, 'articles', ['w']))
+
+    def test_deactivate_reactivate(self):
+        assign_role(self.user, 'editor', 'articles')
+
+        deactivate_user_permissions(self.user)
+        self.assertFalse(check(self.user, 'articles', ['r']))
+
+        activate_user_permissions(self.user)
+        self.assertTrue(check(self.user, 'articles', ['r']))
 ```
 
 ## Related Documentation

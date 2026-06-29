@@ -38,8 +38,8 @@ def assign_role(
     """
     try:
         role_obj = Role.objects.get(slug=role)
-    except Role.DoesNotExist:
-        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
+    except Role.DoesNotExist as exc:
+        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas") from exc
 
     # Récupérer tous les RoleGrants pour ce rôle
     role_grants = RoleGrant.objects.filter(role__slug=role, scope=scope)
@@ -75,8 +75,8 @@ def revoke_role(user: AbstractBaseUser, role: str, scope: str) -> tuple[int, dic
     """
     try:
         role_obj = Role.objects.get(slug=role)
-    except Role.DoesNotExist:
-        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas")
+    except Role.DoesNotExist as exc:
+        raise RoleNotFoundException(detail=f"Le rôle '{role}' n'existe pas") from exc
 
     return Grant.objects.filter(user__pk=user.pk, role__slug=role, scope=scope).delete()
 
@@ -107,8 +107,8 @@ def assign_group(
 
     try:
         _group: Group = Group.objects.get(slug=group)
-    except Group.DoesNotExist:
-        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas")
+    except Group.DoesNotExist as exc:
+        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas") from exc
 
     # Créer le UserGroup d'abord
     user_group, created = UserGroup.objects.get_or_create(user=user, group=_group)
@@ -142,15 +142,15 @@ def revoke_group(user: AbstractBaseUser, group: str) -> tuple[int, dict[str, int
     """
     try:
         _group: Group = Group.objects.get(slug=group)
-    except Group.DoesNotExist:
-        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas")
+    except Group.DoesNotExist as exc:
+        raise GroupNotFoundException(detail=f"Le groupe '{group}' n'existe pas") from exc
 
     try:
         user_group = UserGroup.objects.get(user=user, group=_group)
-    except UserGroup.DoesNotExist:
+    except UserGroup.DoesNotExist as exc:
         raise GroupNotFoundException(
             detail=f"Le groupe '{group}' n'est pas assigné à l'utilisateur"
-        )
+        ) from exc
 
     # Supprimer tous les grants liés à ce UserGroup
     grants_deleted, grants_info = Grant.objects.filter(user=user, user_group=user_group).delete()
@@ -257,8 +257,8 @@ def group_sync(
     """
     try:
         group = Group.objects.prefetch_related("roles").get(slug=group_slug)
-    except Group.DoesNotExist:
-        raise GroupNotFoundException(detail=f"Le groupe '{group_slug}' n'existe pas")
+    except Group.DoesNotExist as exc:
+        raise GroupNotFoundException(detail=f"Le groupe '{group_slug}' n'existe pas") from exc
 
     # Si des rôles spécifiques sont demandés, vérifier qu'ils existent et appartiennent au groupe
     if role_slugs:
@@ -270,8 +270,8 @@ def group_sync(
                     raise RoleNotFoundException(
                         detail=f"Le rôle '{role_slug}' n'appartient pas au groupe '{group_slug}'"
                     )
-            except Role.DoesNotExist:
-                raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas")
+            except Role.DoesNotExist as exc:
+                raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas") from exc
 
     # Construire une subquery pour identifier les grants verrouillés
     # Ces grants doivent être exclus de la synchronisation
@@ -390,8 +390,8 @@ def role_sync(role_slug: str, scope: Optional[str] = None) -> dict[str, int]:
     """
     try:
         role = Role.objects.get(slug=role_slug)
-    except Role.DoesNotExist:
-        raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas")
+    except Role.DoesNotExist as exc:
+        raise RoleNotFoundException(detail=f"Le rôle '{role_slug}' n'existe pas") from exc
 
     # Récupérer tous les RoleGrants pour ce rôle
     role_grants_query = RoleGrant.objects.filter(role=role)
@@ -469,6 +469,7 @@ def check(
     grant_filter = Q(
         user__pk=user.pk,
         scope=scope,
+        is_active=True,
         actions__contains=list(required),
     )
 
@@ -525,7 +526,7 @@ def any_action_check(
         Cette fonction vérifie si AU MOINS UNE des actions requises est présente.
     """
     # Construire le filtre de base pour l'utilisateur et le scope
-    grant_filter = Q(user__pk=user.pk, scope=scope)
+    grant_filter = Q(user__pk=user.pk, scope=scope, is_active=True)
 
     # Filtrer par rôle si spécifié
     if role:
@@ -541,6 +542,34 @@ def any_action_check(
 
     # Vérifier l'existence d'un grant correspondant
     return Grant.objects.filter(grant_filter).exists()
+
+
+def activate_user_permissions(user: AbstractBaseUser, scope: Optional[str] = None, app: Optional[str] = None) -> None:
+    """Active les permissions de l'utilisateur pour le scope et/ou l'application spécifiés.
+
+    Passe ``is_active = True`` sur tous les *Grant* correspondants.
+    Si aucun grant ne correspond, l'appel est sans effet (passif).
+    """
+    grants = Grant.objects.filter(user=user)
+    if scope:
+        grants = grants.filter(scope=scope)
+    if app:
+        grants = grants.filter(role__app=app)
+    grants.update(is_active=True)
+
+
+def deactivate_user_permissions(user: AbstractBaseUser, scope: Optional[str] = None, app: Optional[str] = None) -> None:
+    """Désactive les permissions de l'utilisateur pour le scope et/ou l'application spécifiés.
+
+    Passe ``is_active = False`` sur tous les *Grant* correspondants.
+    Si aucun grant ne correspond, l'appel est sans effet (passif).
+    """
+    grants = Grant.objects.filter(user=user)
+    if scope:
+        grants = grants.filter(scope=scope)
+    if app:
+        grants = grants.filter(role__app=app)
+    grants.update(is_active=False)
 
 
 def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:

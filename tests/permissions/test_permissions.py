@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch, MagicMock
 
 from oxutils.permissions.models import Role, Group, RoleGrant, Grant, UserGroup
 from oxutils.permissions.utils import (
+    activate_user_permissions,
+    deactivate_user_permissions,
     assign_role,
     revoke_role,
     assign_group,
@@ -994,3 +996,88 @@ class TestScopeAnyPermission:
         """Test ScopeAnyPermission validation."""
         with pytest.raises(ValueError, match="At least one permission string must be provided"):
             ScopeAnyPermission()
+
+
+class TestActivateDeactivatePermissions:
+    """Test activate_user_permissions and deactivate_user_permissions."""
+
+    def test_activate_all_user_grants(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Activate all grants for a user."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        # Désactiver d'abord
+        deactivate_user_permissions(test_user)
+        assert not check(test_user, 'articles', ['r'])
+
+        # Activer
+        activate_user_permissions(test_user)
+        assert check(test_user, 'articles', ['r'])
+
+    def test_deactivate_all_user_grants(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Deactivate all grants for a user — check() must return False."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assert check(test_user, 'articles', ['r'])
+
+        deactivate_user_permissions(test_user)
+        assert not check(test_user, 'articles', ['r'])
+
+    def test_activate_by_scope(self, test_user, editor_role, editor_role_grant, viewer_role, viewer_role_grant, admin_user):
+        """Activate only grants for a specific scope."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assign_role(test_user, 'viewer', 'articles', by=admin_user)
+        deactivate_user_permissions(test_user)
+
+        # Activer seulement le scope 'articles'
+        activate_user_permissions(test_user, scope='articles')
+        assert check(test_user, 'articles', ['r'])
+
+    def test_deactivate_by_scope(self, test_user, editor_role, editor_role_grant, viewer_role, viewer_role_grant, admin_user):
+        """Deactivate only grants for a specific scope."""
+        # Le viewer_role_grant n'existe pas pour 'invoices', créons un grant manuel
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assign_role(test_user, 'viewer', 'articles', by=admin_user)
+
+        deactivate_user_permissions(test_user, scope='articles')
+        assert not check(test_user, 'articles', ['r'])
+
+    def test_activate_by_app(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Activate only grants whose role belongs to a given app."""
+        editor_role.app = 'blog'
+        editor_role.save()
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        deactivate_user_permissions(test_user)
+
+        activate_user_permissions(test_user, app='blog')
+        assert check(test_user, 'articles', ['r'])
+
+    def test_deactivate_by_app(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Deactivate only grants whose role belongs to a given app."""
+        editor_role.app = 'cms'
+        editor_role.save()
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assert check(test_user, 'articles', ['r'])
+
+        deactivate_user_permissions(test_user, app='cms')
+        assert not check(test_user, 'articles', ['r'])
+
+    def test_activate_no_matching_grants_is_passive(self, test_user):
+        """activate_user_permissions on a user with no grants does not raise."""
+        activate_user_permissions(test_user)
+        activate_user_permissions(test_user, scope='nonexistent')
+        activate_user_permissions(test_user, app='noapp')
+
+    def test_deactivate_no_matching_grants_is_passive(self, test_user):
+        """deactivate_user_permissions on a user with no grants does not raise."""
+        deactivate_user_permissions(test_user)
+        deactivate_user_permissions(test_user, scope='nonexistent')
+        deactivate_user_permissions(test_user, app='noapp')
+
+    def test_reactivate_restores_check(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Deactivate then reactivate — check() passes again."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assert check(test_user, 'articles', ['r'])
+
+        deactivate_user_permissions(test_user)
+        assert not check(test_user, 'articles', ['r'])
+
+        activate_user_permissions(test_user)
+        assert check(test_user, 'articles', ['r'])
