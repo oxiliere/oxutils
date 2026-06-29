@@ -34,7 +34,7 @@ def get_cached_tenant_token(oxi_id: str, user_id: str):
         raise ObjectDoesNotExist(f"tenant not found: {oxi_id}") from ex
 
     try:
-        tenant_user = tenant.users.select_related("user").get(user__pk=user_id)
+        tenant_user = tenant.users.select_related("user").get(user__pk=user_id, status="active")
     except (ObjectDoesNotExist, ValueError) as ex:
         raise ObjectDoesNotExist(f"tenant_user not found: {oxi_id}/{user_id}") from ex
 

@@ -148,6 +148,7 @@ class Grant(TimestampMixin):
     scope = models.CharField(max_length=100)
     actions = ArrayField(models.CharField(max_length=5))
     context = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
