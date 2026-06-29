@@ -32,8 +32,7 @@ jobs:
     
     - name: Check package
       run: |
-        pip install twine
-        twine check dist/*
+        uvx twine check dist/*
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
