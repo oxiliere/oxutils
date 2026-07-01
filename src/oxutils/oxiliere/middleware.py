@@ -99,8 +99,25 @@ class TenantMainMiddleware(MiddlewareMixin):
 
                 return HttpResponseBadRequest("Missing X-Organization-ID header")
         else:
-            # oxi_id present but no authenticated user
-            return self.no_tenant_found(request, oxi_id)
+            # oxi_id present but no authenticated user → fall back to system tenant
+            # (same behaviour as "no org header") — previously this raised Http404,
+            # which broke every route (including public ones) when the JWT token
+            # expired but the front-end still sent X-Organization-ID.
+            try:
+                from oxutils.oxiliere.caches import get_system_tenant
+
+                tenant = get_system_tenant()
+                # don't try to attach a tenant-user — the user is anonymous anyway
+                tenant.user = None
+            except Exception as e:
+                logger.error(
+                    "system_tenant_not_found",
+                    oxi_id=oxi_id,
+                    error=str(e),
+                )
+                from django.http import HttpResponseBadRequest
+
+                return HttpResponseBadRequest("Missing X-Organization-ID header")
 
         # ── Status guards ─────────────────────────────────────────────
         if tenant.is_deleted or not tenant.is_active:
