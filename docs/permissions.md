@@ -99,6 +99,12 @@ if 'cacheops' in settings.INSTALLED_APPS:
     CACHE_CHECK_PERMISSION = True
 
 # and add "oxutils.permissions.*" in cacheops settings
+
+# Extra permission instances applied globally to all controllers
+EXTRA_PERMISSIONS = [
+    "myapp.permissions.IsPremium",
+    "myapp.permissions.IsVerified",
+]
 ```
 
 ### Permission Preset
@@ -428,6 +434,44 @@ class ContentController:
 | `ScopePermission` | AND | User must have ALL actions (e.g., `'articles:rw'` = read AND write) |
 | `ScopeAnyActionPermission` | OR | User needs ANY action on one scope (e.g., `'articles:rwd'` = read OR write OR delete) |
 | `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/roles) |
+
+### Global Extra Permissions
+
+Use ``extra_permissions()`` to inject permission instances globally across
+all controllers.  Define singleton permission instances in your own modules
+and list their dotted paths in ``EXTRA_PERMISSIONS`` (settings.py).
+
+```python
+# myapp/permissions.py
+from ninja_extra.permissions import BasePermission
+
+class IsPremium(BasePermission):
+    def has_permission(self, request, controller):
+        return getattr(request.user, "is_premium", False)
+
+# Singleton — import_string will return this instance directly
+IsPremium = IsPremium()
+
+
+# settings.py
+EXTRA_PERMISSIONS = [
+    "myapp.permissions.IsPremium",
+]
+
+
+# controller
+from oxutils.permissions.perms import extra_permissions
+
+@api_controller(
+    "/api",
+    permissions=[*extra_permissions(), ScopePermission("articles:r")],
+)
+class MyController:
+    ...
+```
+
+The result is cached via :func:`functools.lru_cache` — ``import_string``
+is only called once per process.
 
 ### Assign Role to User
 

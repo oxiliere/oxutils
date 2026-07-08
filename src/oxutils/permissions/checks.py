@@ -291,4 +291,40 @@ def check_permission_settings(app_configs, **kwargs):
                 )
             )
     
+    # Validate EXTRA_PERMISSIONS
+    if hasattr(settings, 'EXTRA_PERMISSIONS'):
+        extra = settings.EXTRA_PERMISSIONS
+        if not isinstance(extra, (list, tuple)):
+            errors.append(
+                Error(
+                    'EXTRA_PERMISSIONS must be a list or tuple',
+                    hint='Set EXTRA_PERMISSIONS = ["dotted.path.ToPermission", ...]',
+                    id='permissions.E019',
+                )
+            )
+        else:
+            from django.utils.module_loading import import_string
+
+            for path in extra:
+                if not isinstance(path, str):
+                    errors.append(
+                        Error(
+                            f'Each entry in EXTRA_PERMISSIONS must be a string, got {type(path).__name__}',
+                            hint='Use dotted paths like "myapp.permissions.MyPermission"',
+                            id='permissions.E020',
+                        )
+                    )
+                    continue
+                try:
+                    cls = import_string(path)
+                except ImportError:
+                    errors.append(
+                        Error(
+                            f'Cannot import "{path}" from EXTRA_PERMISSIONS',
+                            hint='Check that the module and class exist',
+                            id='permissions.E021',
+                        )
+                    )
+                    continue
+
     return errors

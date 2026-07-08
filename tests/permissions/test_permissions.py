@@ -3,6 +3,7 @@ Tests for the permissions module.
 """
 import pytest
 from django.contrib.auth import get_user_model
+from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from unittest.mock import Mock, patch, MagicMock
@@ -38,7 +39,8 @@ from oxutils.permissions.perms import (
     ScopePermission,
     ScopeAnyPermission,
     ScopeAnyActionPermission,
-    access_manager
+    access_manager,
+    extra_permissions,
 )
 
 
@@ -1081,3 +1083,80 @@ class TestActivateDeactivatePermissions:
 
         activate_user_permissions(test_user)
         assert check(test_user, 'articles', ['r'])
+
+
+class TestExtraPermissions:
+    """Tests for extra_permissions() utility."""
+
+    @override_settings()
+    def test_returns_empty_list_when_not_configured(self):
+        """Returns [] when EXTRA_PERMISSIONS is not defined."""
+        extra_permissions.cache_clear()
+        # Delete the setting manually since override_settings doesn't handle deletions
+        if hasattr(django_settings, 'EXTRA_PERMISSIONS'):
+            delattr(django_settings, 'EXTRA_PERMISSIONS')
+        result = extra_permissions()
+        assert result == []
+
+    @override_settings(
+        EXTRA_PERMISSIONS=[
+            'oxutils.permissions.perms.ScopePermission',
+        ]
+    )
+    def test_imports_and_returns_instances(self):
+        """Dotted paths are imported and returned as-is."""
+        extra_permissions.cache_clear()
+
+        result = extra_permissions()
+
+        assert len(result) == 1
+        # import_string returns the object at the path (class or instance)
+        assert result[0] is ScopePermission
+
+    @override_settings(
+        EXTRA_PERMISSIONS=[
+            'nonexistent.module.Permission',
+        ]
+    )
+    def test_raises_improperly_configured_on_bad_path(self):
+        """Invalid dotted path raises ImproperlyConfigured."""
+        extra_permissions.cache_clear()
+
+        with pytest.raises(ImproperlyConfigured, match='Cannot import'):
+            extra_permissions()
+
+    @override_settings(EXTRA_PERMISSIONS='not_a_list')
+    def test_raises_on_non_list_setting(self):
+        """Non-list EXTRA_PERMISSIONS raises ImproperlyConfigured."""
+        extra_permissions.cache_clear()
+
+        with pytest.raises(ImproperlyConfigured, match='must be a list'):
+            extra_permissions()
+
+    @override_settings(
+        EXTRA_PERMISSIONS=[
+            'oxutils.permissions.perms.ScopePermission',
+            'oxutils.permissions.perms.ScopeAnyPermission',
+        ]
+    )
+    def test_multiple_permissions(self):
+        """Multiple entries are all imported."""
+        extra_permissions.cache_clear()
+
+        result = extra_permissions()
+
+        assert len(result) == 2
+        assert result[0] is ScopePermission
+        assert result[1] is ScopeAnyPermission
+
+    def test_result_is_cached(self):
+        """Second call returns the same list (lru_cache)."""
+        extra_permissions.cache_clear()
+
+        with override_settings(
+            EXTRA_PERMISSIONS=['oxutils.permissions.perms.ScopePermission']
+        ):
+            result1 = extra_permissions()
+            result2 = extra_permissions()
+
+        assert result1 is result2
