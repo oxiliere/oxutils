@@ -1,8 +1,10 @@
+from functools import lru_cache
 from typing import Optional
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest
+from django.utils.module_loading import import_string
 from ninja_extra.controllers import ControllerBase
 from ninja_extra.permissions import BasePermission
 
@@ -199,3 +201,59 @@ def access_manager(actions: str):
             )
 
     return ScopePermission(perm, context)
+
+
+@lru_cache(maxsize=1)
+def extra_permissions():
+    """
+    Return the list of permission instances defined in
+    ``EXTRA_PERMISSIONS`` (settings.py).
+
+    Each entry is a dotted path to an **already instantiated** permission
+    object (e.g. a module-level singleton).  The object is imported via
+    :func:`django.utils.module_loading.import_string` and returned as-is.
+
+    The result is cached via :func:`functools.lru_cache` so that
+    ``import_string`` is only called once per process.
+
+    Example::
+
+        # myapp/permissions.py
+        from ninja_extra.permissions import BasePermission
+
+        class IsPremium(BasePermission):
+            def has_permission(self, request, controller):
+                return request.user.is_premium
+
+        IsPremium = IsPremium()   # <-- singleton instance
+
+        # settings.py
+        EXTRA_PERMISSIONS = [
+            "myapp.permissions.IsPremium",
+        ]
+
+        # controller
+        from oxutils.permissions import extra_permissions
+
+        @api_controller(
+            "/api",
+            permissions=[*extra_permissions(), ScopePermission("articles:r")],
+        )
+        class MyController:
+            ...
+    """
+    paths = getattr(settings, "EXTRA_PERMISSIONS", [])
+    if not isinstance(paths, (list, tuple)):
+        raise ImproperlyConfigured(
+            "EXTRA_PERMISSIONS must be a list or tuple of dotted paths."
+        )
+    instances = []
+    for path in paths:
+        try:
+            instance = import_string(path)
+        except ImportError as exc:
+            raise ImproperlyConfigured(
+                f"Cannot import permission from EXTRA_PERMISSIONS: {path}"
+            ) from exc
+        instances.append(instance)
+    return instances
