@@ -10,6 +10,7 @@
 - RoleGrant templates for role permissions
 - Activate / deactivate grants per user without deleting them
 - Application namespacing via `Role.app`
+- **Auto-discovery**: each app exports its presets, scopes, and app name from a `permissions.py` module
 - Automatic synchronization after changes
 - Bulk operations for performance
 - Full traceability with `created_by` tracking
@@ -105,6 +106,55 @@ EXTRA_PERMISSIONS = [
     "myapp.permissions.IsPremium",
     "myapp.permissions.IsVerified",
 ]
+```
+
+### Auto-Discovery from Apps
+
+When ``PermissionsConfig.ready()`` runs (Django startup), it automatically
+walks all installed apps and collects permission configuration from each
+app's ``permissions.py`` module.  No manual wiring needed — just drop a
+``permissions.py`` in your app and export the relevant variables.
+
+**Discovered variables:**
+
+| Variable | Type | Description |
+|---|---|---|
+| `PERMISSION_PRESET` | `dict` | Roles, groups, and role grants defined by this app |
+| `ACCESS_SCOPES` | `list[str]` | Scope names used by this app |
+| `ACCESS_APPLICATION_NAME` | `str` | Application namespace (populates `ACCESS_APPLICATIONS`) |
+
+Each discovered entity (role, group, role_grant) automatically gets its
+``app`` field set to the app's label, enabling application‑level filtering.
+
+**Example — blog/permissions.py:**
+
+```python
+# blog/permissions.py
+
+PERMISSION_PRESET = {
+    "roles": [
+        {"name": "Author", "slug": "author"},
+        {"name": "Commenter", "slug": "commenter"},
+    ],
+    "groups": [
+        {"name": "Blog Staff", "slug": "blog-staff", "roles": ["author"]},
+    ],
+    "role_grants": [
+        {"role": "author", "scope": "posts", "actions": ["r", "w"]},
+        {"role": "commenter", "scope": "comments", "actions": ["r", "w"]},
+    ],
+}
+
+ACCESS_SCOPES = ["posts", "comments"]
+
+ACCESS_APPLICATION_NAME = "blog"
+```
+
+That's it — the preset, scopes, and application name are automatically merged
+into the global configuration at startup.  Load the merged preset with:
+
+```bash
+python manage.py load_permission_preset
 ```
 
 ### Permission Preset

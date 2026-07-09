@@ -356,17 +356,11 @@ class TestSafeDeleteSignalIntegration:
         """Test that undelete signal calls restore_masked_fields."""
         from oxutils.models.base import _restore_masked_fields
 
-        # Create a mock instance
-        class TestModel(SafeDeleteModelMixin):
-            class Meta:
-                app_label = "test"
+        instance = MagicMock(spec=SafeDeleteModelMixin)
+        instance.restore_masked_fields = mock_restore
 
-        instance = TestModel()
+        _restore_masked_fields(sender=SafeDeleteModelMixin, instance=instance)
 
-        # Call the signal handler directly
-        _restore_masked_fields(sender=TestModel, instance=instance)
-
-        # Check that restore_masked_fields was called
         mock_restore.assert_called_once()
 
 
@@ -383,7 +377,7 @@ class TestSafeDeleteModelMixinEdgeCases:
             mask_fields = []  # Empty list
 
             class Meta:
-                app_label = "test"
+                app_label = "test_empty_mask"
 
         instance = TestModel(email="test@example.com")
         instance.pk = 1
@@ -403,7 +397,7 @@ class TestSafeDeleteModelMixinEdgeCases:
             mask_fields = ["nonexistent_field"]
 
             class Meta:
-                app_label = "test"
+                app_label = "test_nonexistent"
 
         instance = TestModel(email="test@example.com")
         instance.pk = 1
