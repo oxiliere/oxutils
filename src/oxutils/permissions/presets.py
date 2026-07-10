@@ -116,7 +116,7 @@ def register_access_scopes() -> None:
             existing.append(scope)
 
     settings.ACCESS_SCOPES = existing
-    logger.info("access_scopes_registered", count=len(existing))
+    logger.debug("access_scopes_registered", count=len(existing))
 
 
 def register_access_applications() -> None:
@@ -128,4 +128,4 @@ def register_access_applications() -> None:
             existing.append(app_name)
 
     settings.ACCESS_APPLICATIONS = existing
-    logger.info("access_applications_registered", count=len(existing))
+    logger.debug("access_applications_registered", count=len(existing))
