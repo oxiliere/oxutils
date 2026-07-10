@@ -38,7 +38,7 @@ def discover_app_presets() -> list[dict]:
             grant.setdefault("app", app_config.label)
 
         presets.append(preset)
-        logger.info(
+        logger.debug(
             "permission_preset_discovered",
             app=app_config.label,
             roles=len(preset.get("roles", [])),
@@ -63,7 +63,7 @@ def discover_access_scopes() -> list[str]:
             for scope in app_scopes:
                 if scope not in scopes:
                     scopes.append(scope)
-                    logger.info(
+                    logger.debug(
                         "access_scope_discovered",
                         app=app_config.label,
                         scope=scope,
@@ -84,7 +84,7 @@ def discover_access_applications() -> list[str]:
         app_name = getattr(mod, "ACCESS_APPLICATION_NAME", None)
         if isinstance(app_name, str) and app_name not in applications:
             applications.append(app_name)
-            logger.info(
+            logger.debug(
                 "access_application_discovered",
                 app=app_config.label,
                 application=app_name,
