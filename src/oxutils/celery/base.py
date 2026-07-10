@@ -30,6 +30,9 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pr
                "json_formatter": {
                    "()": structlog.stdlib.ProcessorFormatter,
                    "processor": structlog.processors.JSONRenderer(),
+                   "foreign_pre_chain": [
+                       structlog.processors.format_exc_info,
+                   ],
                },
                "plain_console": {
                    "()": structlog.stdlib.ProcessorFormatter,
@@ -40,6 +43,9 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pr
                    "processor": structlog.processors.KeyValueRenderer(
                         key_order=['timestamp', 'level', 'event', 'logger']
                     ),
+                   "foreign_pre_chain": [
+                       structlog.processors.format_exc_info,
+                   ],
                },
            },
            "handlers": {
@@ -88,7 +94,6 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pr
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],

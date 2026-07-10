@@ -42,6 +42,7 @@ from oxutils.permissions.perms import (
     access_manager,
     extra_permissions,
 )
+from oxutils.permissions import presets as presets_mod
 
 
 User = get_user_model()
@@ -1160,3 +1161,370 @@ class TestExtraPermissions:
             result2 = extra_permissions()
 
         assert result1 is result2
+
+
+# ── Helpers for preset discovery tests ────────────────────────────
+
+def _fake_app_config(name, label=None):
+    """Return a mock AppConfig with *name* and *label*."""
+    cfg = Mock()
+    cfg.name = name
+    cfg.label = label or name
+    return cfg
+
+
+def _patch_discovery(app_configs, module_attrs=None):
+    """
+    Context manager that patches ``apps.get_app_configs`` and
+    ``importlib.import_module`` for discovery tests.
+
+    *app_configs*: list of mock AppConfigs.
+    *module_attrs*: dict mapping ``app_config.name`` → dict of module attributes.
+    """
+    from contextlib import ExitStack
+
+    module_attrs = module_attrs or {}
+
+    def _import_module(name):
+        for cfg in app_configs:
+            if name == f"{cfg.name}.permissions":
+                mod = Mock()
+                for attr, val in (module_attrs.get(cfg.name, {})).items():
+                    setattr(mod, attr, val)
+                return mod
+        raise ModuleNotFoundError(f"No module named '{name}'")
+
+    stack = ExitStack()
+    stack.enter_context(
+        patch.object(presets_mod.apps, "get_app_configs", return_value=app_configs)
+    )
+    stack.enter_context(
+        patch.object(presets_mod.importlib, "import_module", side_effect=_import_module)
+    )
+    return stack
+
+
+# ── Discovery tests ───────────────────────────────────────────────
+
+class TestDiscoverAppPresets:
+    """Tests for discover_app_presets()."""
+
+    def test_discovers_preset_from_app(self):
+        """App exporting PERMISSION_PRESET is discovered."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg],
+            {
+                "blog": {
+                    "PERMISSION_PRESET": {
+                        "roles": [{"slug": "author"}],
+                        "groups": [{"slug": "writers"}],
+                        "role_grants": [{"role": "author", "scope": "posts", "actions": ["r", "w"]}],
+                    }
+                }
+            },
+        ):
+            result = presets_mod.discover_app_presets()
+
+        assert len(result) == 1
+        preset = result[0]
+        assert preset["roles"][0]["app"] == "blog"
+        assert preset["groups"][0]["app"] == "blog"
+        assert preset["role_grants"][0]["app"] == "blog"
+
+    def test_app_without_permissions_module_is_skipped(self):
+        """App without a permissions.py is silently skipped."""
+        cfg = _fake_app_config("no_perms")
+        with _patch_discovery([cfg]):
+            result = presets_mod.discover_app_presets()
+        assert result == []
+
+    def test_app_without_preset_is_skipped(self):
+        """App whose permissions.py has no PERMISSION_PRESET is skipped."""
+        cfg = _fake_app_config("plain")
+        with _patch_discovery([cfg], {"plain": {"SOME_OTHER_VAR": True}}):
+            result = presets_mod.discover_app_presets()
+        assert result == []
+
+    def test_app_with_non_dict_preset_is_skipped(self):
+        """String / list PERMISSION_PRESET is ignored."""
+        cfg = _fake_app_config("bad")
+        with _patch_discovery([cfg], {"bad": {"PERMISSION_PRESET": "not_a_dict"}}):
+            result = presets_mod.discover_app_presets()
+        assert result == []
+
+    def test_multiple_apps_are_all_discovered(self):
+        """Each app contributes its own preset dict."""
+        blog = _fake_app_config("blog")
+        shop = _fake_app_config("shop")
+        with _patch_discovery(
+            [blog, shop],
+            {
+                "blog": {"PERMISSION_PRESET": {"roles": [{"slug": "author"}]}},
+                "shop": {"PERMISSION_PRESET": {"roles": [{"slug": "seller"}]}},
+            },
+        ):
+            result = presets_mod.discover_app_presets()
+
+        assert len(result) == 2
+
+    def test_app_label_is_set_on_all_entities(self):
+        """Roles, groups, and role_grants all get 'app' set to the app label."""
+        cfg = _fake_app_config("cms", label="my_cms")
+        with _patch_discovery(
+            [cfg],
+            {
+                "cms": {
+                    "PERMISSION_PRESET": {
+                        "roles": [{"slug": "editor"}],
+                        "groups": [{"slug": "editors"}],
+                        "role_grants": [{"role": "editor", "scope": "pages", "actions": ["r"]}],
+                    }
+                }
+            },
+        ):
+            result = presets_mod.discover_app_presets()
+
+        preset = result[0]
+        assert preset["roles"][0]["app"] == "my_cms"
+        assert preset["groups"][0]["app"] == "my_cms"
+        assert preset["role_grants"][0]["app"] == "my_cms"
+
+    def test_preserves_existing_app_value(self):
+        """If 'app' is already set on an entity, it is not overwritten."""
+        cfg = _fake_app_config("blog", label="blog")
+        with _patch_discovery(
+            [cfg],
+            {
+                "blog": {
+                    "PERMISSION_PRESET": {
+                        "roles": [{"slug": "author", "app": "custom_app"}],
+                    }
+                }
+            },
+        ):
+            result = presets_mod.discover_app_presets()
+
+        # setdefault should not overwrite an existing value
+        assert result[0]["roles"][0]["app"] == "custom_app"
+
+
+class TestDiscoverAccessScopes:
+    """Tests for discover_access_scopes()."""
+
+    def test_discovers_scopes_from_app(self):
+        """App exporting ACCESS_SCOPES is discovered."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_SCOPES": ["posts", "comments"]}}
+        ):
+            result = presets_mod.discover_access_scopes()
+
+        assert result == ["posts", "comments"]
+
+    def test_app_without_scopes_is_skipped(self):
+        """App without ACCESS_SCOPES is silently skipped."""
+        cfg = _fake_app_config("plain")
+        with _patch_discovery([cfg], {"plain": {}}):
+            result = presets_mod.discover_access_scopes()
+        assert result == []
+
+    def test_app_with_non_list_scopes_is_skipped(self):
+        """String / dict ACCESS_SCOPES is ignored."""
+        cfg = _fake_app_config("bad")
+        with _patch_discovery([cfg], {"bad": {"ACCESS_SCOPES": "not_a_list"}}):
+            result = presets_mod.discover_access_scopes()
+        assert result == []
+
+    def test_deduplicates_across_apps(self):
+        """Same scope from multiple apps appears only once."""
+        blog = _fake_app_config("blog")
+        shop = _fake_app_config("shop")
+        with _patch_discovery(
+            [blog, shop],
+            {
+                "blog": {"ACCESS_SCOPES": ["posts", "common"]},
+                "shop": {"ACCESS_SCOPES": ["products", "common"]},
+            },
+        ):
+            result = presets_mod.discover_access_scopes()
+
+        assert result == ["posts", "common", "products"]
+
+    def test_multiple_apps_are_all_discovered(self):
+        """All apps contribute their scopes in order."""
+        blog = _fake_app_config("blog")
+        shop = _fake_app_config("shop")
+        with _patch_discovery(
+            [blog, shop],
+            {
+                "blog": {"ACCESS_SCOPES": ["posts"]},
+                "shop": {"ACCESS_SCOPES": ["products"]},
+            },
+        ):
+            result = presets_mod.discover_access_scopes()
+
+        assert "posts" in result
+        assert "products" in result
+
+
+class TestDiscoverAccessApplications:
+    """Tests for discover_access_applications()."""
+
+    def test_discovers_application_name_from_app(self):
+        """App exporting ACCESS_APPLICATION_NAME is discovered."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "blog_app"}}
+        ):
+            result = presets_mod.discover_access_applications()
+
+        assert result == ["blog_app"]
+
+    def test_app_without_name_is_skipped(self):
+        """App without ACCESS_APPLICATION_NAME is skipped."""
+        cfg = _fake_app_config("plain")
+        with _patch_discovery([cfg], {"plain": {}}):
+            result = presets_mod.discover_access_applications()
+        assert result == []
+
+    def test_app_with_non_string_name_is_skipped(self):
+        """Non-string ACCESS_APPLICATION_NAME is ignored."""
+        cfg = _fake_app_config("bad")
+        with _patch_discovery(
+            [cfg], {"bad": {"ACCESS_APPLICATION_NAME": 123}}
+        ):
+            result = presets_mod.discover_access_applications()
+        assert result == []
+
+    def test_deduplicates_across_apps(self):
+        """Same application name from multiple apps appears only once."""
+        a = _fake_app_config("app_a")
+        b = _fake_app_config("app_b")
+        with _patch_discovery(
+            [a, b],
+            {
+                "app_a": {"ACCESS_APPLICATION_NAME": "crm"},
+                "app_b": {"ACCESS_APPLICATION_NAME": "crm"},
+            },
+        ):
+            result = presets_mod.discover_access_applications()
+
+        assert result == ["crm"]
+
+
+# ── Registration tests ────────────────────────────────────────────
+
+class TestRegisterPreset:
+    """Tests for register_preset()."""
+
+    def test_extends_base_with_discovered(self):
+        """Base preset is extended with discovered entries."""
+        cfg = _fake_app_config("blog")
+        base = {"roles": [{"slug": "admin"}], "groups": [], "role_grants": []}
+
+        with _patch_discovery(
+            [cfg],
+            {
+                "blog": {
+                    "PERMISSION_PRESET": {
+                        "roles": [{"slug": "author"}],
+                        "groups": [{"slug": "writers"}],
+                        "role_grants": [{"role": "author", "scope": "posts", "actions": ["r"]}],
+                    }
+                }
+            },
+        ):
+            result = presets_mod.register_preset(base)
+
+        assert len(result["roles"]) == 2
+        assert len(result["groups"]) == 1
+        assert len(result["role_grants"]) == 1
+
+    def test_base_without_keys_still_works(self):
+        """Empty base dict gets default keys."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg],
+            {"blog": {"PERMISSION_PRESET": {"roles": [{"slug": "author"}]}}},
+        ):
+            result = presets_mod.register_preset({})
+
+        assert "roles" in result
+        assert "groups" in result
+        assert "role_grants" in result
+        assert len(result["roles"]) == 1
+
+
+class TestRegisterAccessScopes:
+    """Tests for register_access_scopes()."""
+
+    @override_settings(ACCESS_SCOPES=["existing"])
+    def test_merges_discovered_into_settings(self):
+        """Discovered scopes are appended to the existing list."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_SCOPES": ["posts", "comments"]}}
+        ):
+            presets_mod.register_access_scopes()
+
+        assert django_settings.ACCESS_SCOPES == ["existing", "posts", "comments"]
+
+    @override_settings(ACCESS_SCOPES=[])
+    def test_works_when_setting_not_defined(self):
+        """If ACCESS_SCOPES is empty, starts from scratch."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_SCOPES": ["posts"]}}
+        ):
+            presets_mod.register_access_scopes()
+
+        assert django_settings.ACCESS_SCOPES == ["posts"]
+
+    @override_settings(ACCESS_SCOPES=["common"])
+    def test_no_duplicates(self):
+        """Duplicates between existing and discovered are not added."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_SCOPES": ["common", "posts"]}}
+        ):
+            presets_mod.register_access_scopes()
+
+        assert django_settings.ACCESS_SCOPES == ["common", "posts"]
+
+
+class TestRegisterAccessApplications:
+    """Tests for register_access_applications()."""
+
+    @override_settings(ACCESS_APPLICATIONS=["existing"])
+    def test_merges_discovered_into_settings(self):
+        """Discovered app names are appended to the existing list."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
+        ):
+            presets_mod.register_access_applications()
+
+        assert django_settings.ACCESS_APPLICATIONS == ["existing", "crm"]
+
+    @override_settings()
+    def test_works_when_setting_not_defined(self):
+        """If ACCESS_APPLICATIONS is not in settings, starts from empty."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
+        ):
+            presets_mod.register_access_applications()
+
+        assert django_settings.ACCESS_APPLICATIONS == ["crm"]
+
+    @override_settings(ACCESS_APPLICATIONS=["crm"])
+    def test_no_duplicates(self):
+        """Duplicates between existing and discovered are not added."""
+        cfg = _fake_app_config("blog")
+        with _patch_discovery(
+            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
+        ):
+            presets_mod.register_access_applications()
+
+        assert django_settings.ACCESS_APPLICATIONS == ["crm"]
