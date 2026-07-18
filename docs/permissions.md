@@ -1,24 +1,24 @@
-# Permissions System
+# Permissions System — v0.5.0
 
-**Flexible role-based access control with groups and custom grants**
+**Domain-oriented role-based access control with named actions, groups and custom grants**
+
+> ⚠️ **Breaking change from 0.4.x** — actions are now **named strings** (e.g. `create`, `approve`)
+> instead of single letters (`r`, `w`, `d`). The permission string format uses `/` (AND)
+> and `|` (OR) separators. See [Migration from 0.4.x](#migration-from-04x) below.
 
 ## Features
 
-- Role-based permissions with hierarchical actions
-- Group management for bulk role assignment
-- Custom grant overrides per user
-- RoleGrant templates for role permissions
-- Activate / deactivate grants per user without deleting them
-- Application namespacing via `Role.app`
-- **Auto-discovery**: each app exports its presets, scopes, and app name from a `permissions.py` module
-- Automatic synchronization after changes
-- Bulk operations for performance
-- Full traceability with `created_by` tracking
-- Context-based permission filtering
+- **Named actions** — domain-oriented: `create`, `approve`, `cancel`, `publish`…
+- **Translatable labels** — each action has a `label` field for i18n frontend display
+- **Action hierarchy** — `approve` can imply `create`; declared in the preset via `implies`
+- **AND / OR operators** — `/` = all actions required, `|` = at least one
+- **Strict scope ownership** — each scope belongs to exactly one app
+- Role-based permissions, groups, custom grant overrides, activate/deactivate
+- Auto-discovery from app `permissions.py` modules
+- Context-based filtering (multi-tenant ready)
+- Full traceability with `created_by` and `locked` flags
 
 ## Setup
-
-Add to `INSTALLED_APPS`:
 
 ```python
 # settings.py
@@ -28,13 +28,48 @@ INSTALLED_APPS = [
 ]
 ```
 
-Run migrations:
-
 ```bash
 python manage.py migrate permissions
 ```
 
 ## Core Concepts
+
+### Action Definitions (NEW in 0.5.0)
+
+Actions are **named strings** with optional **translatable labels** and **hierarchy**,
+defined per scope in `PERMISSION_PRESET["actions"]`:
+
+```python
+from django.utils.translation import gettext_lazy as _
+
+PERMISSION_PRESET = {
+    "actions": {
+        "orders": {
+            "create":  {"implies": [],               "label": _("Create")},
+            "approve": {"implies": ["create"],        "label": _("Approve")},
+            "cancel":  {"implies": [],               "label": _("Cancel")},
+            "refund":  {"implies": ["approve"],       "label": _("Refund")},
+            "read":    {"implies": [],               "label": _("Read")},
+        },
+        "articles": {
+            "read":    {"implies": [],               "label": _("Read")},
+            "write":   {"implies": ["read"],          "label": _("Write")},
+            "publish": {"implies": ["write"],         "label": _("Publish")},
+            "archive": {"implies": ["publish"],       "label": _("Archive")},
+        },
+    },
+    "roles": [...],
+    "groups": [...],
+    "role_grants": [...],
+}
+```
+
+- **`implies`** — actions automatically granted when this action is assigned.
+  `approve` implies `create` → granting `["approve"]` stores `["approve", "create"]`.
+- **`label`** — translated display name for the frontend. Use `gettext_lazy` (`_()`)
+  for i18n. Falls back to the action key if omitted.
+- **Scope ownership** — each scope is strictly owned by one app. Two apps defining
+  the same scope raises `ImproperlyConfigured`.
 
 ### Architecture
 
@@ -44,157 +79,76 @@ User ──> UserGroup ──> Group ──> Role ──> RoleGrant
   └──────────> Grant <────────────────────────┘
 ```
 
-### Models
+### Models Summary
 
-**Role**: Named set of permissions (e.g., `admin`, `editor`)
-- `app`: optional namespace (e.g., `'blog'`, `'cms'`) — used to filter grants by application
-
-**Group**: Collection of roles for easier assignment (e.g., `staff`)
-
-**RoleGrant**: Permission template for a role on a scope
-- Applies to all users with the role
-
-**Grant**: Effective user permission on a scope
-- **Inherited**: `locked = False` (from RoleGrant, can be modified by group_sync)
-- **Custom**: `locked = True` (after override, protected from group_sync)
-- `is_active`: toggle grant on/off without deleting (default `True`)
-
-**UserGroup**: Links user to group for traceability
-
-### Actions Hierarchy
-
-Actions have dependencies that are automatically expanded:
-
-- `r`: Read
-- `w`: Write (implies `r`)
-- `d`: Delete (implies `w`, `r`)
-
-Example: Granting `['w']` automatically gives `['r', 'w']`
+| Model | Description |
+|---|---|
+| **Role** | Named permission set (`admin`, `editor`). Optional `app` namespace. |
+| **Group** | Collection of roles for bulk assignment (`staff`). |
+| **RoleGrant** | Template: which actions a role has on a scope. Actions are expanded via hierarchy. |
+| **Grant** | Effective user permission. `locked=False` = inherited, `locked=True` = custom. `is_active` toggle. |
+| **UserGroup** | Links user to group for traceability. |
 
 ## Configuration
 
-### Required Settings
-
 ```python
 # settings.py
 
-# Access manager configuration
-ACCESS_MANAGER_SCOPE = "access"      # Scope for access management endpoints
-ACCESS_MANAGER_GROUP = "manager"     # Group for UserGroup assignment in authorization (or None)
-ACCESS_MANAGER_ROLE = "admin"        # Role for permission check filtering (or None)
-ACCESS_MANAGER_CONTEXT = {}          # Additional context dict
+ACCESS_MANAGER_SCOPE = "access"    # optional, defaults to "access"
+ACCESS_MANAGER_GROUP = "manager"   # or None
+ACCESS_MANAGER_ROLE = "manager"     # or None
+ACCESS_MANAGER_CONTEXT = {}
 
-# List of valid scopes in your application
+# Scopes — strings (key only) or dicts with translatable labels
+from django.utils.translation import gettext_lazy as _
+
 ACCESS_SCOPES = [
-    "access",
+    "articles",                                    # plain string → label = key
     "users",
-    "articles",
-    "comments"
+    {"key": "orders",   "label": _("Orders")},      # dict → translatable label
+    {"key": "invoices", "label": _("Invoices")},
 ]
 
-# Enable permission check caching (requires cacheops)
 CACHE_CHECK_PERMISSION = False
-
-# if cacheops is installed, enable caching
-if 'cacheops' in settings.INSTALLED_APPS:
-    CACHE_CHECK_PERMISSION = True
-
-# and add "oxutils.permissions.*" in cacheops settings
-
-# Extra permission instances applied globally to all controllers
-EXTRA_PERMISSIONS = [
-    "myapp.permissions.IsPremium",
-    "myapp.permissions.IsVerified",
-]
 ```
 
-### Auto-Discovery from Apps
+> 💡 **Recommendation**: always use the dict format with `_()` labels for scopes
+> visible in the frontend.  The `GET /api/access/scopes` endpoint returns
+> `{"key": "...", "label": "..."}` pairs that can be displayed directly.
 
-When ``PermissionsConfig.ready()`` runs (Django startup), it automatically
-walks all installed apps and collects permission configuration from each
-app's ``permissions.py`` module.  No manual wiring needed — just drop a
-``permissions.py`` in your app and export the relevant variables.
-
-**Discovered variables:**
-
-| Variable | Type | Description |
-|---|---|---|
-| `PERMISSION_PRESET` | `dict` | Roles, groups, and role grants defined by this app |
-| `ACCESS_SCOPES` | `list[str]` | Scope names used by this app |
-| `ACCESS_APPLICATION_NAME` | `str` | Application namespace (populates `ACCESS_APPLICATIONS`) |
-
-Each discovered entity (role, group, role_grant) automatically gets its
-``app`` field set to the app's label, enabling application‑level filtering.
-
-**Example — blog/permissions.py:**
+### Full PERMISSION_PRESET Example
 
 ```python
-# blog/permissions.py
+from django.utils.translation import gettext_lazy as _
 
 PERMISSION_PRESET = {
+    "actions": {
+        "access": {
+            "read":   {"implies": [],                  "label": _("Read")},
+            "write":  {"implies": ["read"],             "label": _("Write")},
+            "delete": {"implies": ["read", "write"],    "label": _("Delete")},
+            "update": {"implies": ["read"],             "label": _("Update")},
+        },
+        "orders": {
+            "create":  {"implies": [],                  "label": _("Create")},
+            "approve": {"implies": ["create"],          "label": _("Approve")},
+            "cancel":  {"implies": [],                  "label": _("Cancel")},
+            "read":    {"implies": [],                  "label": _("Read")},
+        },
+    },
     "roles": [
-        {"name": "Author", "slug": "author"},
-        {"name": "Commenter", "slug": "commenter"},
+        {"name": "Manager", "slug": "manager"},
+        {"name": "Editor",  "slug": "editor"},
+        {"name": "Viewer",  "slug": "viewer"},
     ],
     "groups": [
-        {"name": "Blog Staff", "slug": "blog-staff", "roles": ["author"]},
+        {"name": "Staff", "slug": "staff", "roles": ["editor", "viewer"]},
     ],
     "role_grants": [
-        {"role": "author", "scope": "posts", "actions": ["r", "w"]},
-        {"role": "commenter", "scope": "comments", "actions": ["r", "w"]},
+        {"role": "manager", "scope": "access",  "actions": ["read", "write"], "context": {}},
+        {"role": "editor",  "scope": "articles", "actions": ["write"],        "context": {}},
+        {"role": "viewer",  "scope": "articles", "actions": ["read"],         "context": {}},
     ],
-}
-
-ACCESS_SCOPES = ["posts", "comments"]
-
-ACCESS_APPLICATION_NAME = "blog"
-```
-
-That's it — the preset, scopes, and application name are automatically merged
-into the global configuration at startup.  Load the merged preset with:
-
-```bash
-python manage.py load_permission_preset
-```
-
-### Permission Preset
-
-Define initial permissions in settings:
-
-```python
-# settings.py
-PERMISSION_PRESET = {
-    "roles": [
-        {"name": "Admin", "slug": "admin"},
-        {"name": "Editor", "slug": "editor"},
-        {"name": "Viewer", "slug": "viewer"}
-    ],
-    "group": [
-        {
-            "name": "Staff",
-            "slug": "staff",
-            "roles": ["editor", "viewer"]
-        },
-        {
-            "name": "Premium Staff",
-            "slug": "premium-staff",
-            "roles": ["editor"]
-        }
-    ],
-    "role_grants": [
-        {
-            "role": "admin",
-            "scope": "users",
-            "actions": ["r", "w", "d"],
-            "context": {}
-        },
-        {
-            "role": "editor",
-            "scope": "articles",
-            "actions": ["r", "w"],
-            "context": {}
-        }
-    ]
 }
 ```
 
@@ -202,62 +156,114 @@ Load the preset:
 
 ```bash
 python manage.py load_permission_preset
-
-# Force reload (careful with duplicates)
 python manage.py load_permission_preset --force
 ```
 
+### Auto-Discovery from Apps
+
+Each app exports from `permissions.py`:
+
+```python
+# orders/permissions.py
+from django.utils.translation import gettext_lazy as _
+
+PERMISSION_PRESET = {
+    "actions": {
+        "orders": {
+            "create":  {"implies": [],          "label": _("Create")},
+            "approve": {"implies": ["create"],   "label": _("Approve")},
+        },
+    },
+    "roles": [
+        {"name": "Order Manager", "slug": "order-manager"},
+    ],
+    "role_grants": [
+        {"role": "order-manager", "scope": "orders",
+         "actions": ["create", "approve"], "context": {}},
+    ],
+}
+
+# Scopes with translatable labels for the frontend
+ACCESS_SCOPES = [
+    {"key": "orders", "label": _("Orders")},
+]
+
+ACCESS_APPLICATION_NAME = "orders"
+```
+
+## Permission String Format
+
+| Format | Meaning |
+|---|---|
+| `orders:create` | Single action |
+| `orders:create/approve` | **AND** — must have `create` **and** `approve` |
+| `orders:create\|approve` | **OR** — must have `create` **or** `approve` |
+| `orders:create/approve:manager` | AND + role filter |
+| `orders:create\|approve:manager` | OR + role filter |
+| `orders:create/approve?tenant_id=42` | AND + context |
+
 ## API Endpoints
 
-All endpoints are prefixed with `/api/access/` (configurable in router).
+```
+GET    /api/access/scopes                         → list all scopes
+GET    /api/access/scopes/{scope}/actions          → actions with translated labels
 
-### Roles
+GET    /api/access/roles                           → list roles
+GET    /api/access/groups                          → list groups
+POST   /api/access/groups                          → create group
+PUT    /api/access/groups/{slug}                   → update group
+DELETE /api/access/groups/{slug}                   → delete group
 
-```http
-GET    /api/access/roles              # List all roles
-POST   /api/access/roles              # Create role
-GET    /api/access/roles/{slug}       # Get role details
-PUT    /api/access/roles/{slug}       # Update role
-DELETE /api/access/roles/{slug}       # Delete role
+POST   /api/access/users/assign-role               → assign role to user
+POST   /api/access/users/revoke-role               → revoke role
+POST   /api/access/users/assign-group              → assign group
+POST   /api/access/users/revoke-group              → revoke group
+POST   /api/access/users/override-grant            → override grant
+
+GET    /api/access/users/{id}/grants               → user grants
+GET    /api/access/users/{id}/groups               → user groups
+
+GET    /api/access/role-grants                     → list role grants
+POST   /api/access/role-grants                     → create role grant
+PUT    /api/access/role-grants/{id}                → update role grant
+DELETE /api/access/role-grants/{id}                → delete role grant
+PUT    /api/access/grants/{id}                     → update grant
 ```
 
-### Groups
+### Scope Actions Endpoint (NEW in 0.5.0)
 
 ```http
-GET    /api/access/groups             # List all groups
-POST   /api/access/groups             # Create group
-GET    /api/access/groups/{slug}      # Get group details
-PUT    /api/access/groups/{slug}      # Update group
-DELETE /api/access/groups/{slug}      # Delete group
-POST   /api/access/groups/{slug}/sync # Sync group users
+GET /api/access/scopes/orders/actions
 ```
 
-### User Assignment
+```json
+{
+    "scope": "orders",
+    "actions": [
+        {"key": "create",  "label": "Créer"},
+        {"key": "approve", "label": "Approuver"},
+        {"key": "cancel",  "label": "Annuler"},
+        {"key": "read",    "label": "Lire"}
+    ]
+}
+```
+
+### Scopes Endpoint (NEW in 0.5.0)
 
 ```http
-POST /api/access/users/assign-role    # Assign role to user
-POST /api/access/users/revoke-role    # Revoke role from user
-POST /api/access/users/assign-group   # Assign group to user
-POST /api/access/users/revoke-group   # Revoke group from user
+GET /api/access/scopes
 ```
 
-### Grants
-
-```http
-GET    /api/access/grants             # List grants
-POST   /api/access/grants             # Create custom grant
-PUT    /api/access/grants/{id}        # Update grant
-DELETE /api/access/grants/{id}        # Delete grant
+```json
+[
+    {"key": "orders",   "label": "Commandes"},
+    {"key": "articles", "label": "Articles"},
+    {"key": "users",    "label": "Utilisateurs"}
+]
 ```
 
-### RoleGrants
-
-```http
-GET    /api/access/role-grants        # List role grants
-POST   /api/access/role-grants        # Create role grant
-PUT    /api/access/role-grants/{id}   # Update role grant
-DELETE /api/access/role-grants/{id}   # Delete role grant
-```
+> 💡 The `label` is resolved in the active locale — use `_()` in your `ACCESS_SCOPES`
+> definitions to get translated scope names for free.
 
 ## Usage
 
@@ -266,870 +272,152 @@ DELETE /api/access/role-grants/{id}   # Delete role grant
 ```python
 from oxutils.permissions.utils import check, str_check
 
-# Simple check (ALL actions required)
-if check(user, 'articles', ['r']):
-    # User can read articles
-    pass
+# AND: all actions required
+check(user, 'orders', ['create', 'approve'])       # True if has both
 
-# Check with context
-if check(user, 'articles', ['w'], tenant_id=123):
-    # User can write articles for tenant 123
-    pass
+# String check — single action
+str_check(user, 'orders:create')
 
-# Check with role filter
-if check(user, 'articles', ['w'], role='editor'):
-    # User can write articles via editor role
-    pass
+# AND (must have both)
+str_check(user, 'orders:create/approve')
 
-# String-based check (convenient format)
-if str_check(user, 'articles:r'):
-    # User can read articles
-    pass
+# OR (at least one)
+str_check(user, 'orders:create|approve')
 
-# String check with role
-if str_check(user, 'articles:w:editor'):
-    # User can write articles via editor role
-    pass
+# With role filter
+str_check(user, 'orders:create/approve:manager')
 
-# String check with context (query params)
-if str_check(user, 'articles:w?tenant_id=123&status=published'):
-    # User can write published articles for tenant 123
-    pass
-
-# String check with role and context
-if str_check(user, 'articles:w:editor?tenant_id=123'):
-    # User can write articles for tenant 123 via editor role
-    pass
+# With context
+str_check(user, 'orders:create?tenant_id=42')
 ```
 
-### "Any" Permission Checks (OR Logic)
-
-For checking if a user has **at least one** of multiple permissions:
+### OR Checks
 
 ```python
 from oxutils.permissions.utils import any_action_check, any_permission_check
 
-# Check if user has AT LEAST ONE action on a scope
-if any_action_check(user, 'articles', ['r', 'w', 'd']):
-    # User has read OR write OR delete permission
-    pass
+# OR on a single scope
+any_action_check(user, 'orders', ['create', 'approve', 'cancel'])
 
-# With role filter
-if any_action_check(user, 'articles', ['w', 'd'], role='editor'):
-    # User has write OR delete via editor role
-    pass
-
-# With context
-if any_action_check(user, 'articles', ['r', 'w'], tenant_id=123):
-    # User has read OR write for tenant 123
-    pass
-
-# Check if user has AT LEAST ONE of multiple permissions
-if any_permission_check(
+# OR across different scopes/permissions
+any_permission_check(
     user,
-    'articles:r',              # Can read articles
-    'articles:w:editor',       # OR can write as editor
-    'invoices:d:admin'         # OR can delete invoices as admin
-):
-    # User has at least one of these permissions
-    pass
-
-# Complex example with different scopes and contexts
-if any_permission_check(
-    user,
-    'reports:r?department=finance',
-    'reports:w:admin',
-    'analytics:r'
-):
-    # User can access if they have ANY of these permissions
-    pass
+    'orders:create|approve',
+    'articles:read',
+    'users:read/write:admin',
+)
 ```
-
-**Performance Note:** Both functions use a single optimized database query with OR conditions, regardless of how many permissions are checked.
 
 ### Controller-Level Permissions
 
-#### ScopePermission (AND Logic)
-
-Use `ScopePermission` to protect entire controllers or specific routes. User must have **ALL** specified actions:
-
 ```python
-from ninja_extra import api_controller, http_get
-from oxutils.permissions.perms import ScopePermission
+from oxutils.permissions.perms import (
+    ScopePermission, ScopeAnyActionPermission, ScopeAnyPermission
+)
 
-# Protect entire controller
-@api_controller('/articles', permissions=[ScopePermission('articles:w')])
-class ArticleController:
-    @http_get('/')
-    def list_articles(self):
-        # Only users with write permission on articles can access
-        pass
-
-# With role-specific permission
-@api_controller('/admin', permissions=[ScopePermission('users:w:admin')])
-class AdminController:
+# AND — must have create AND approve
+@api_controller('/orders', permissions=[ScopePermission('orders:create/approve')])
+class OrderController:
     pass
 
-# With context in permission string
-@api_controller('/reports', permissions=[ScopePermission('reports:r?department=finance')])
-class ReportController:
+# OR — must have create OR approve
+@api_controller('/orders', permissions=[ScopePermission('orders:create|approve')])
+class FlexibleController:
     pass
 
-# Method-level permission (override controller permission)
-@api_controller('/articles')
-class ArticleController:
-    @http_get('/', permissions=[ScopePermission('articles:r')])
-    def list_articles(self):
-        # Read-only access
-        pass
-    
-    @http_post('/', permissions=[ScopePermission('articles:w')])
-    def create_article(self):
-        # Write access required
-        pass
-```
-
-#### ScopeAnyActionPermission (OR Logic - Single Scope)
-
-Use when user needs **at least one** of multiple actions on a single scope:
-
-```python
-from oxutils.permissions.perms import ScopeAnyActionPermission
-
-# User needs read OR write OR delete on articles
-@api_controller('/articles', permissions=[
-    ScopeAnyActionPermission('articles:rwd')
+# Always OR (ignores separator)
+@api_controller('/orders', permissions=[
+    ScopeAnyActionPermission('orders:create/approve/cancel')
 ])
-class ArticleController:
-    # Access granted if user has ANY of: read, write, or delete
+class AnyController:
     pass
 
-# With role filter
-@api_controller('/reports', permissions=[
-    ScopeAnyActionPermission('reports:rw:admin')
-])
-class ReportController:
-    # User needs read OR write via admin role
-    pass
-
-# With context
-@api_controller('/invoices', permissions=[
-    ScopeAnyActionPermission('invoices:rwd?tenant_id=123')
-])
-class InvoiceController:
-    # User needs read OR write OR delete for tenant 123
-    pass
-
-# With additional context via ctx parameter
-@api_controller('/data', permissions=[
-    ScopeAnyActionPermission('data:rw', ctx={'department': 'finance'})
-])
-class DataController:
-    pass
-```
-
-#### ScopeAnyPermission (OR Logic - Multiple Permissions)
-
-Use when user needs **at least one** of multiple complete permissions (can be different scopes):
-
-```python
-from oxutils.permissions.perms import ScopeAnyPermission
-
-# User needs ANY of these permissions
+# OR across multiple permissions
 @api_controller('/dashboard', permissions=[
-    ScopeAnyPermission(
-        'articles:r',           # Can read articles
-        'invoices:w:accountant',# OR can write invoices as accountant
-        'reports:r:admin'       # OR can read reports as admin
-    )
+    ScopeAnyPermission('orders:create|approve', 'articles:read')
 ])
 class DashboardController:
-    # Access granted if user has at least one permission
     pass
 
-# Complex example with different scopes and contexts
-@api_controller('/analytics', permissions=[
-    ScopeAnyPermission(
-        'analytics:r',
-        'reports:r?department=finance',
-        'data:w:admin'
-    )
-])
-class AnalyticsController:
-    # User needs ANY of these permissions to access
+# Access manager (for built-in /access endpoints)
+from oxutils.permissions.perms import access_manager
+
+@api_controller('/admin', permissions=[IsAuthenticated & access_manager('read/write')])
+class AdminController:
     pass
-
-# Combining with method-level permissions
-@api_controller('/content')
-class ContentController:
-    @http_get('/', permissions=[
-        ScopeAnyPermission('articles:r', 'pages:r', 'posts:r')
-    ])
-    def list_content(self):
-        # Can read articles OR pages OR posts
-        pass
-    
-    @http_post('/', permissions=[
-        ScopeAnyPermission('articles:w:editor', 'posts:w:editor')
-    ])
-    def create_content(self):
-        # Can write articles as editor OR posts as editor
-        pass
 ```
 
-**Comparison:**
-
-| Permission Class | Logic | Use Case |
-|-----------------|-------|----------|
-| `ScopePermission` | AND | User must have ALL actions (e.g., `'articles:rw'` = read AND write) |
-| `ScopeAnyActionPermission` | OR | User needs ANY action on one scope (e.g., `'articles:rwd'` = read OR write OR delete) |
-| `ScopeAnyPermission` | OR | User needs ANY complete permission (e.g., multiple scopes/roles) |
-
-### Global Extra Permissions
-
-Use ``extra_permissions()`` to inject permission instances globally across
-all controllers.  Define singleton permission instances in your own modules
-and list their dotted paths in ``EXTRA_PERMISSIONS`` (settings.py).
+### Frontend — Action Labels
 
 ```python
-# myapp/permissions.py
-from ninja_extra.permissions import BasePermission
+from oxutils.permissions.actions import get_action_label, get_scope_actions_labels
 
-class IsPremium(BasePermission):
-    def has_permission(self, request, controller):
-        return getattr(request.user, "is_premium", False)
+# Single label
+get_action_label('orders', 'create')  # → "Créer" (in French locale)
 
-# Singleton — import_string will return this instance directly
-IsPremium = IsPremium()
-
-
-# settings.py
-EXTRA_PERMISSIONS = [
-    "myapp.permissions.IsPremium",
-]
-
-
-# controller
-from oxutils.permissions.perms import extra_permissions
-
-@api_controller(
-    "/api",
-    permissions=[*extra_permissions(), ScopePermission("articles:r")],
-)
-class MyController:
-    ...
+# All labels for a scope
+get_scope_actions_labels('orders')
+# → {"create": "Créer", "approve": "Approuver", "cancel": "Annuler", ...}
 ```
 
-The result is cached via :func:`functools.lru_cache` — ``import_string``
-is only called once per process.
-
-### Assign Role to User
+### Assign / Revoke / Override
 
 ```python
-from oxutils.permissions.utils import assign_role
+from oxutils.permissions.utils import assign_role, revoke_role, override_grant
 
-# Assign role directly for a specific scope
-assign_role(user, 'editor', 'articles', by=admin_user)
-
-# This creates Grants based on RoleGrants for 'editor' on 'articles' scope
+assign_role(user, 'editor', 'articles', by=admin)
+revoke_role(user, 'editor', 'articles')
+override_grant(user, 'articles', ['publish'])   # sets locked=True
+override_grant(user, 'articles', [])             # deletes grant
 ```
 
-### Assign Group to User
+### Activate / Deactivate
 
 ```python
-from oxutils.permissions.utils import assign_group
+from oxutils.permissions.utils import activate_user_permissions, deactivate_user_permissions
 
-# Assign all roles from a group
-user_group = assign_group(user, 'staff', by=admin_user)
-
-# This:
-# 1. Creates a UserGroup linking user to group
-# 2. Assigns all roles from the group
-```
-
-### Revoke Permissions
-
-```python
-from oxutils.permissions.utils import revoke_role, revoke_group
-
-# Revoke a single role for a specific scope
-deleted_count, info = revoke_role(user, 'editor', 'articles')
-
-# Revoke entire group (removes all associated grants)
-deleted_count, info = revoke_group(user, 'staff')
-```
-
-### Activate / Deactivate Permissions
-
-Toggle grants on/off without deleting them.  Inactive grants are ignored
-by `check()` and `any_action_check()`.
-
-```python
-from oxutils.permissions.utils import (
-    activate_user_permissions,
-    deactivate_user_permissions,
-)
-
-# Deactivate ALL grants for a user
-deactivate_user_permissions(user)
-assert not check(user, 'articles', ['r'])
-
-# Reactivate
+deactivate_user_permissions(user)                     # all scopes
+deactivate_user_permissions(user, scope='articles')   # single scope
 activate_user_permissions(user)
-assert check(user, 'articles', ['r'])
-
-# Deactivate only grants for a specific scope
-deactivate_user_permissions(user, scope='articles')
-
-# Deactivate only grants whose role belongs to a given app
-deactivate_user_permissions(user, app='blog')
-
-# Both filters can be combined
-activate_user_permissions(user, scope='articles', app='cms')
 ```
 
-Both functions are **passive**: they never raise an exception, even when
-no grant matches the given filters.
-
-### Override User Permissions
+### Sync After Changes
 
 ```python
-from oxutils.permissions.utils import override_grant
+from oxutils.permissions.utils import group_sync, role_sync
 
-# User has ['r', 'w', 'd'] on articles via role
-# Override to read-only
-override_grant(user, 'articles', actions=['r'])
-
-# Grant becomes locked (locked=True)
-# Will NOT be affected by future group syncs
-
-# To remove a grant entirely
-override_grant(user, 'articles', actions=[])
-```
-
-### Synchronize Group
-
-After modifying RoleGrants or group roles, sync all users:
-
-```python
-from oxutils.permissions.utils import group_sync
-
-# Sync all users in the group
-stats = group_sync('staff')
-# Returns: {"users_synced": 5, "grants_updated": 15}
-
-# Sync specific roles only (performance optimization)
-stats = group_sync('staff', role_slugs=['editor', 'viewer'])
-# Returns: {"users_synced": 5, "grants_updated": 8}
-
-# Sync specific scope only (performance optimization)
-stats = group_sync('staff', scope='articles')
-# Returns: {"users_synced": 5, "grants_updated": 5}
-
-# Sync specific roles and scope (targeted sync)
-stats = group_sync('staff', role_slugs=['editor'], scope='articles')
-# Returns: {"users_synced": 5, "grants_updated": 3}
-
-# This:
-# 1. Deletes old grants (except locked ones)
-# 2. Recreates grants from current RoleGrants
-# 3. Preserves locked grants (locked=True)
-# 4. Filters by role_slugs and/or scope if provided
-```
-
-### Synchronize Role
-
-After modifying RoleGrants for a role, sync all independent role assignments:
-
-```python
-from oxutils.permissions.utils import role_sync
-
-# Sync all users with independent role assignments
-stats = role_sync('editor')
-# Returns: {"grants_updated": 12}
-
-# Sync specific scope only (performance optimization)
-stats = role_sync('editor', scope='articles')
-# Returns: {"grants_updated": 3}
-
-# This:
-# 1. Updates grants for users with independent role assignments (user_group=None)
-# 2. Does NOT affect group-based grants (use group_sync for those)
-# 3. Preserves locked grants (locked=True)
-# 4. Updates actions and context directly (no delete/recreate)
-```
-
-## Advanced Usage
-
-### Role Permissions
-
-```python
-# RoleGrant for all editors
-RoleGrant.objects.create(
-    role=editor_role,
-    scope='articles',
-    actions=['r', 'w', 'd']
-)
-
-# All users with editor role get ['r', 'w', 'd'] on articles
-assign_role(user1, 'editor', 'articles')
-assign_group(user2, 'staff')  # If staff group includes editor role
-```
-
-### Context-Based Permissions
-
-```python
-# Create grant with context
-Grant.objects.create(
-    user=user,
-    scope='articles',
-    actions=['r', 'w'],
-    context={'tenant_id': 123, 'status': 'published'}
-)
-
-# Check with matching context
-check(user, 'articles', ['w'], tenant_id=123, status='published')  # True
-check(user, 'articles', ['w'], tenant_id=456)  # False
-```
-
-### Custom Grant Creation
-
-```python
-from oxutils.permissions.services import PermissionService
-
-service = PermissionService()
-
-# Create a custom grant (not tied to any role)
-grant = service.create_grant({
-    'user_id': user.id,
-    'scope': 'reports',
-    'actions': ['r', 'x'],
-    'context': {'department': 'finance'}
-})
-```
-
-## Service Layer
-
-Use the service for business logic:
-
-```python
-from oxutils.permissions.services import PermissionService
-
-service = PermissionService()
-
-# Assign role with traceability
-role = service.assign_role_to_user(
-    user_id=user.id,
-    role_slug='editor',
-    by_user=admin_user
-)
-
-# Assign group
-roles = service.assign_group_to_user(
-    user_id=user.id,
-    group_slug='staff',
-    by_user=admin_user
-)
-
-# Sync group
-stats = service.sync_group('staff')
-```
-
-## Workflow Examples
-
-### Initial Setup
-
-```python
-# 1. Create roles
-admin = Role.objects.create(slug='admin', name='Administrator')
-editor = Role.objects.create(slug='editor', name='Editor')
-
-# 2. Create RoleGrants
-RoleGrant.objects.create(
-    role=admin,
-    scope='users',
-    actions=['r', 'w', 'd']
-)
-
-RoleGrant.objects.create(
-    role=editor,
-    scope='articles',
-    actions=['r', 'w']
-)
-
-# 3. Create group
-staff = Group.objects.create(slug='staff', name='Staff')
-staff.roles.add(editor)
-
-# 4. Assign to users
-assign_group(user, 'staff', by=admin_user)
-```
-
-### Modify Permissions Globally
-
-```python
-# Update RoleGrant
-rg = RoleGrant.objects.get(role__slug='editor', scope='articles')
-rg.actions = ['r', 'w', 'd']  # Add delete permission
-rg.save()
-
-# Sync all users in groups that have this role
+# After modifying a RoleGrant, sync affected users
 group_sync('staff')
-
-# All staff members now have delete permission
-# EXCEPT those with locked grants
+group_sync('staff', role_slugs=['editor'], scope='articles')
+role_sync('editor', scope='articles')
 ```
 
-### Handle Permission Abuse
+## Permission Classes Comparison
 
-```python
-# Option 1: Override with restricted actions (permanent until manually reverted)
-override_grant(user, 'articles', actions=['r', 'w'])
+| Class | Logic | Example |
+|---|---|---|
+| `ScopePermission` | Respects `/` (AND) or `\|` (OR) | `'orders:create/approve'` |
+| `ScopeAnyActionPermission` | Always OR | `'orders:create/approve'` → OR |
+| `ScopeAnyPermission` | OR across multiple strings | `'orders:create\|approve', 'articles:read'` |
 
-# Option 2: Temporarily deactivate (preserves original actions, reversible)
-deactivate_user_permissions(user, scope='articles')
-# … investigation period …
-activate_user_permissions(user, scope='articles')
-```
+## Migration from 0.4.x
 
-### Temporary Elevated Access
-
-```python
-# Give temporary admin access for a specific scope
-assign_role(user, 'admin', 'articles', by=manager)
-
-# Later, revoke it
-revoke_role(user, 'admin', 'articles')
-
-# User returns to their group permissions
-```
-
-## Performance
-
-### Bulk Operations
-
-The system uses bulk operations for optimal performance:
-
-```python
-# group_sync uses bulk_create with update_conflicts
-# 100 users × 10 grants = efficient bulk operations
-stats = group_sync('large-group')
-
-# Use filters for better performance on large datasets
-stats = group_sync('large-group', role_slugs=['editor'], scope='articles')
-
-# role_sync uses direct updates (no delete/recreate)
-stats = role_sync('editor', scope='articles')
-```
-
-### Permission Check Caching
-
-Enable caching to improve permission check performance:
-
-```python
-# settings.py
-CACHE_CHECK_PERMISSION = True
-
-# Requires cacheops in INSTALLED_APPS
-INSTALLED_APPS = [
-    # ...
-    'cacheops',
-    'oxutils.permissions',
-]
-
-# Configure cacheops
-CACHEOPS_REDIS = "redis://localhost:6379/1"
-CACHEOPS = {
-    'permissions.*': {'ops': 'all', 'timeout': 60*60},
-}
-```
-
-**How it works:**
-
-- When `CACHE_CHECK_PERMISSION = True`, permission checks are cached for 15 minutes
-- Cache is automatically invalidated when `Grant` model changes
-- Uses `cacheops` `@cached_as` decorator
-- Falls back to non-cached checks if `CACHE_CHECK_PERMISSION = False`
-
-**Cached functions:**
-
-```python
-from oxutils.permissions.caches import (
-    cache_check,                    # Caches check()
-    cache_any_action_check,         # Caches any_action_check()
-    cache_any_permission_check      # Caches any_permission_check()
-)
-
-# All permission classes automatically use cached versions
-ScopePermission('articles:r')              # Uses cache_check
-ScopeAnyActionPermission('articles:rwd')   # Uses cache_any_action_check
-ScopeAnyPermission('articles:r', 'invoices:w')  # Uses cache_any_permission_check
-```
-
-**Performance impact:**
-
-```python
-# Without cache: Database query every time
-check(user, 'articles', ['r'])  # ~5-10ms
-any_action_check(user, 'articles', ['r', 'w', 'd'])  # ~5-10ms
-any_permission_check(user, 'articles:r', 'invoices:w')  # ~5-10ms
-
-# With cache: Redis lookup after first check
-check(user, 'articles', ['r'])  # ~0.5-1ms (10x faster)
-any_action_check(user, 'articles', ['r', 'w', 'd'])  # ~0.5-1ms (10x faster)
-any_permission_check(user, 'articles:r', 'invoices:w')  # ~0.5-1ms (10x faster)
-```
-
-**Note:** All permission check functions (`check`, `str_check`, `any_action_check`, `any_permission_check`) benefit from caching when enabled.
-
-### Query Optimization
-
-```python
-# Grants use select_related for efficient queries
-grant = Grant.objects.select_related('user_group', 'role').get(id=1)
-
-# Indexes on frequently queried fields
-# - (user, scope)
-# - (user_group)
-# - GIN indexes on actions and context (PostgreSQL)
-```
-
-## Exception Handling
-
-Custom exceptions for clear error messages:
-
-```python
-from oxutils.permissions.exceptions import (
-    RoleNotFoundException,
-    GroupNotFoundException,
-    GrantNotFoundException,
-    RoleAlreadyAssignedException,
-    GroupAlreadyAssignedException,
-)
-
-try:
-    assign_role(user, 'invalid-role', 'articles')
-except RoleNotFoundException as e:
-    # Handle: "Le rôle 'invalid-role' n'existe pas"
-    pass
-```
-
-All exceptions are automatically converted to appropriate HTTP responses by the service layer.
-
-## Database Constraints
-
-### Unique Constraints
-
-- **Role**: `unique(slug)`
-- **Group**: `unique(slug)`
-- **UserGroup**: `unique(user, group)`
-- **RoleGrant**: `unique(role, scope)`
-- **Grant**: `unique(user, scope, role, user_group)`
-
-### Indexes
-
-- Grant: `(user, scope)`, `(user_group)`, GIN on `actions`, GIN on `context`
-- UserGroup: `(user, group)`
-- RoleGrant: `(role)`, `(role, scope)`
+1. **Actions**: Replace single-letter actions (`r`, `w`, `d`, `u`, `a`) with named actions
+   in `PERMISSION_PRESET["actions"]`.
+2. **RoleGrants**: `actions: ["r", "w"]` → `actions: ["read", "write"]`.
+3. **Permission strings**: `'articles:rw'` → `'articles:read/write'` (AND) or `'articles:read|write'` (OR).
+4. **Controllers**: `access_manager('rw')` → `access_manager('read/write')`.
+5. **Run migration** `0010_increase_action_max_length` (included).
+6. **Define actions** per scope in `PERMISSION_PRESET["actions"]` with `implies` and optional `label`.
 
 ## Best Practices
 
-### 1. Use Groups for Organization
-
-```python
-# ✅ Good
-assign_group(user, 'staff')
-
-# ❌ Avoid (unless specific need)
-assign_role(user, 'role1', 'articles')
-assign_role(user, 'role2', 'articles')
-assign_role(user, 'role3', 'articles')
-```
-
-### 2. Define Clear RoleGrants
-
-```python
-# ✅ Good: Clear RoleGrant
-RoleGrant.objects.create(
-    role=editor,
-    scope='articles',
-    actions=['r', 'w']
-)
-```
-
-### 3. Always Sync After Changes
-
-```python
-# Modify RoleGrant
-role_grant.actions = ['r', 'w', 'd']
-role_grant.save()
-
-# ✅ Sync immediately
-# For group-based grants:
-group_sync('staff')
-
-# For independent role assignments:
-role_sync('editor')
-
-# Or sync both with filters for performance:
-group_sync('staff', role_slugs=['editor'], scope='articles')
-role_sync('editor', scope='articles')
-```
-
-### 4. Use Context for Multi-Tenancy
-
-```python
-# Grant with tenant context
-Grant.objects.create(
-    user=user,
-    scope='data',
-    actions=['r', 'w'],
-    context={'tenant_id': 123}
-)
-
-# Check with tenant
-check(user, 'data', ['w'], tenant_id=123)  # True
-check(user, 'data', ['w'], tenant_id=456)  # False
-```
-
-### 5. Track Changes
-
-```python
-# Always pass by parameter for audit trail
-assign_role(user, 'editor', 'articles', by=admin_user)
-assign_group(user, 'staff', by=admin_user)
-```
-
-### 6. Enable Caching for Production
-
-```python
-# settings.py
-CACHE_CHECK_PERMISSION = True  # Enable in production
-
-# Ensure cacheops is configured
-INSTALLED_APPS = ['cacheops', ...]
-CACHEOPS_REDIS = "redis://localhost:6379/1"
-```
-
-## Troubleshooting
-
-### Permissions Not Applied
-
-```python
-# After modifying RoleGrants, sync the group
-group_sync('staff')
-
-# Or sync specific role/scope for better performance
-group_sync('staff', role_slugs=['editor'], scope='articles')
-
-# Also sync independent role assignments
-role_sync('editor', scope='articles')
-```
-
-### Override Not Working
-
-```python
-# Check if grant has role=None
-grant = Grant.objects.get(user=user, scope='articles')
-print(grant.role)  # Should be None for custom grant
-```
-
-### Check Returns False Despite Existing Grant
-
-```python
-# The grant may be inactive
-grant = Grant.objects.get(user=user, scope='articles')
-if not grant.is_active:
-    # Reactivate it
-    activate_user_permissions(user, scope='articles')
-```
-
-### Cache Not Working
-
-```python
-# Verify cacheops is installed
-python -c "import cacheops"
-
-# Check settings
-from django.conf import settings
-print(settings.CACHE_CHECK_PERMISSION)  # Should be True
-print('cacheops' in settings.INSTALLED_APPS)  # Should be True
-
-# Clear cache manually if needed
-from cacheops import invalidate_model
-from oxutils.permissions.models import Grant
-invalidate_model(Grant)
-```
-
-### Bulk Create Conflicts
-
-```python
-# Ensure unique constraint fields match
-# Grant: unique(user, scope, role, user_group)
-```
-
-## Migration Notes
-
-After model changes:
-
-```bash
-python manage.py makemigrations permissions
-python manage.py migrate permissions
-```
-
-Key migrations:
-- Initial: Creates all models with constraints and indexes
-- RoleGrant unique constraint: `(role, scope)`
-- Add `created_by` to Grant: Enables audit trail
-- Update Grant constraint: Includes `user_group` in uniqueness
-
-## Testing
-
-```python
-from django.test import TestCase
-from oxutils.permissions.utils import (
-    activate_user_permissions,
-    deactivate_user_permissions,
-    assign_role,
-    check,
-    override_grant,
-)
-
-class PermissionsTest(TestCase):
-    def setUp(self):
-        self.role = Role.objects.create(slug='editor', name='Editor')
-        RoleGrant.objects.create(
-            role=self.role,
-            scope='articles',
-            actions=['r', 'w']
-        )
-    
-    def test_role_assignment(self):
-        assign_role(self.user, 'editor', 'articles')
-        
-        self.assertTrue(check(self.user, 'articles', ['r']))
-        self.assertTrue(check(self.user, 'articles', ['w']))
-        self.assertFalse(check(self.user, 'articles', ['d']))
-    
-    def test_override(self):
-        assign_role(self.user, 'editor', 'articles')
-        override_grant(self.user, 'articles', actions=['r'])
-
-        self.assertTrue(check(self.user, 'articles', ['r']))
-        self.assertFalse(check(self.user, 'articles', ['w']))
-
-    def test_deactivate_reactivate(self):
-        assign_role(self.user, 'editor', 'articles')
-
-        deactivate_user_permissions(self.user)
-        self.assertFalse(check(self.user, 'articles', ['r']))
-
-        activate_user_permissions(self.user)
-        self.assertTrue(check(self.user, 'articles', ['r']))
-```
-
-## Related Documentation
-
-- [Audit System](audit.md) - Track permission changes
-- [Mixins](mixins.md) - BaseService pattern
-- [Settings](settings.md) - Configuration options
+1. **Define actions per scope** — each scope in its owning app.
+2. **Always add `label`** to every action and scope — the frontend needs them for i18n.
+   Use `gettext_lazy` (`_()`) so they're resolved in the user's locale.
+3. **Use `implies`** for natural hierarchies (approve → create, publish → write → read).
+4. **Sync after changes** — always call `group_sync()` / `role_sync()` after modifying `RoleGrant`.
+5. **Use context for multi-tenancy** — filter grants with `tenant_id`, `department`, etc.
+6. **One scope = one app** — strict ownership prevents conflicts.
+7. **Use dict format for `ACCESS_SCOPES`** when the scope is displayed in the frontend —
+   `{"key": "orders", "label": _("Orders")}` gives you i18n for free.

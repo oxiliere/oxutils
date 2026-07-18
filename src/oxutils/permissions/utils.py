@@ -50,7 +50,7 @@ def assign_role(
             scope=rg.scope,
             role=role_obj,
             defaults={
-                "actions": expand_actions(rg.actions),
+                "actions": expand_actions(rg.scope, rg.actions),
                 "context": rg.context,
                 "user_group": user_group,
                 "created_by": by,
@@ -208,7 +208,7 @@ def override_grant(
         return
 
     # Expander et définir les nouvelles actions
-    expanded_actions = expand_actions(actions)
+    expanded_actions = expand_actions(scope, actions)
     grant.actions = expanded_actions
     grant.locked = True  # Le grant devient verrouillé (protégé du group_sync)
     grant.save(update_fields=["actions", "locked", "updated_at"])
@@ -324,7 +324,7 @@ def group_sync(
                     user=user_group.user,
                     scope=rg.scope,
                     role=rg.role,
-                    actions=expand_actions(rg.actions),
+                    actions=expand_actions(rg.scope, rg.actions),
                     context=rg.context,
                     user_group=user_group,
                 )
@@ -419,7 +419,7 @@ def role_sync(role_slug: str, scope: Optional[str] = None) -> dict[str, int]:
 
         if role_grant:
             # Mettre à jour les actions et le contexte directement
-            grant.actions = expand_actions(role_grant.actions)
+            grant.actions = expand_actions(role_grant.scope, role_grant.actions)
             grant.context = role_grant.context
             grant.save(update_fields=["actions", "context", "updated_at"])
             updated_count += 1
@@ -435,14 +435,14 @@ def check(
     **context: Any,
 ) -> bool:
     """
-    Vérifie si un utilisateur possède les permissions requises pour un scope donné.
+    Vérifie si un utilisateur possède **toutes** les actions requises pour un scope donné (AND).
     Utilise l'opérateur PostgreSQL @> (contains) pour vérifier que toutes les actions
-    requises sont présentes dans le grant."updated_at"
+    requises sont présentes dans le grant.
 
     Args:
         user: L'utilisateur dont on vérifie les permissions
-        scope: Le scope à vérifier (ex: 'articles', 'users', 'comments')
-        required: Liste des actions requises (ex: ['r'], ['w', 'r'], ['d'])
+        scope: Le scope à vérifier (ex: 'orders', 'articles')
+        required: Liste des actions nommées requises (ex: ['create'], ['create', 'approve'])
         role: Slug du rôle optionnel pour filtrer les grants par rôle.
               Si None, vérifie globalement tous les grants du scope.
         **context: Contexte additionnel pour filtrer les grants (clés JSON)
@@ -451,19 +451,20 @@ def check(
         True si l'utilisateur possède toutes les actions requises, False sinon
 
     Example:
-        >>> # Vérification globale : l'utilisateur peut-il lire les articles ?
-        >>> check(user, 'articles', ['r'])
+        >>> # Vérification globale : l'utilisateur peut-il créer des commandes ?
+        >>> check(user, 'orders', ['create'])
         True
-        >>> # Vérification par rôle : a-t-il ce droit via le rôle 'admin' ?
-        >>> check(user, 'articles', ['w'], role='admin')
-        True
-        >>> # Vérifier avec contexte
-        >>> check(user, 'articles', ['w'], tenant_id=123)
+        >>> # Vérification AND : doit pouvoir créer ET approuver
+        >>> check(user, 'orders', ['create', 'approve'])
         False
+        >>> # Vérification par rôle
+        >>> check(user, 'orders', ['create'], role='manager')
+        True
 
     Note:
         Les actions sont automatiquement expandées lors de la création du grant,
-        donc vérifier ['w'] vérifiera aussi ['r'] implicitement.
+        donc vérifier ['create'] fonctionne même si le grant stocke ['approve', 'create']
+        (si 'approve' implique 'create' dans la hiérarchie).
     """
     # Construire le filtre de base
     grant_filter = Q(
@@ -493,15 +494,16 @@ def any_action_check(
     **context: Any,
 ) -> bool:
     """
-    Vérifie si un utilisateur possède au moins une des actions requises pour un scope donné.
+    Vérifie si un utilisateur possède **au moins une** des actions requises pour un scope donné (OR).
 
     Cette fonction utilise une seule requête optimisée avec des conditions OR pour vérifier
     si l'utilisateur possède au moins une des actions dans la liste.
 
     Args:
         user: L'utilisateur dont on vérifie les permissions
-        scope: Le scope à vérifier (ex: 'articles', 'invoices')
-        required: Liste des actions dont au moins une est requise (ex: ['r', 'w'], ['d'])
+        scope: Le scope à vérifier (ex: 'orders', 'articles')
+        required: Liste des actions nommées dont au moins une est requise
+                  (ex: ['create', 'approve'])
         role: Slug du rôle optionnel pour filtrer les grants par rôle.
               Si None, vérifie globalement tous les grants du scope.
         **context: Contexte additionnel pour filtrer les grants (clés JSON)
@@ -510,20 +512,12 @@ def any_action_check(
         True si l'utilisateur possède au moins une des actions requises, False sinon
 
     Example:
-        >>> # Vérification globale
-        >>> any_action_check(user, 'articles', ['r', 'w'])
-        True
+        >>> # Vérification OR globale
+        >>> any_action_check(user, 'orders', ['create', 'approve'])
+        True  # si l'utilisateur a create OU approve
         >>> # Vérification par rôle
-        >>> any_action_check(user, 'articles', ['r', 'w'], role='editor')
+        >>> any_action_check(user, 'orders', ['create', 'approve'], role='editor')
         True
-        >>> # Vérifier avec contexte
-        >>> any_action_check(user, 'articles', ['w', 'd'], tenant_id=123)
-        False
-
-    Note:
-        Les actions sont automatiquement expandées lors de la création du grant,
-        donc si un grant contient ['w'], il contient aussi ['r'] implicitement.
-        Cette fonction vérifie si AU MOINS UNE des actions requises est présente.
     """
     # Construire le filtre de base pour l'utilisateur et le scope
     grant_filter = Q(user__pk=user.pk, scope=scope, is_active=True)
@@ -580,30 +574,30 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
     optimisée avec des conditions OR pour vérifier si l'utilisateur possède au moins
     une des permissions.
 
+    Chaque chaîne de permission peut utiliser :
+        - ``/`` (AND) — toutes les actions sont requises
+        - ``|`` (OR) — au moins une action est requise
+
     Args:
         user: L'utilisateur dont on vérifie les permissions
-        *str_perms: Liste de chaînes de permissions au format standard
-                    (ex: 'articles:r', 'invoices:w:admin', 'users:d?tenant_id=123')
+        *str_perms: Liste de chaînes de permissions au format
+                    ``<scope>:<action1>/<action2>:<role>?key=value``
+                    ou ``<scope>:<action1>|<action2>:<role>?key=value``
 
     Returns:
         True si l'utilisateur possède au moins une des permissions, False sinon
 
     Example:
         >>> # Vérification globale
-        >>> any_permission_check(user, 'articles:r', 'invoices:w')
+        >>> any_permission_check(user, 'articles:read', 'invoices:write')
         True
-        >>> # Avec différents rôles et contextes
+        >>> # AND dans un scope, OR entre scopes
         >>> any_permission_check(
         ...     user,
-        ...     'articles:w:editor',
-        ...     'invoices:r:accountant',
-        ...     'users:d?tenant_id=123'
+        ...     'orders:create/approve',        # AND: doit avoir create ET approve
+        ...     'articles:read|write:editor',   # OR: au moins read OU write via editor
         ... )
         False
-
-    Note:
-        Toute la vérification se fait au niveau de la base de données avec une seule
-        requête utilisant des conditions OR pour optimiser les performances.
     """
     if not str_perms:
         return False
@@ -615,11 +609,16 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
     permission_filters = Q()
 
     for perm in str_perms:
-        # Parser la permission
-        scope, actions, role, context = parse_permission(perm)
+        # Parser la permission (nouveau format avec opérateur)
+        scope, actions, operator, role, context = parse_permission(perm)
 
         # Construire le filtre pour cette permission spécifique
-        perm_filter = Q(scope=scope, actions__overlap=actions)
+        if operator == "|":
+            # OR : au moins une action parmi la liste
+            perm_filter = Q(scope=scope, actions__overlap=actions)
+        else:
+            # AND : toutes les actions doivent être présentes
+            perm_filter = Q(scope=scope, actions__contains=actions)
 
         # Filtrer par rôle si spécifié
         if role:
@@ -636,38 +635,43 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
     return Grant.objects.filter(base_filter & permission_filters).exists()
 
 
-def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str, Any]]:
+def parse_permission(perm: str) -> tuple[str, list[str], str, Optional[str], dict[str, Any]]:
     """
     Parse une chaîne de permission et retourne ses composants.
 
     Formats supportés:
-        - "<scope>:<actions>" : vérification globale sur le scope
-        - "<scope>:<actions>:<role>" : vérification liée à un rôle spécifique
-        - "<scope>:<actions>?key=value" : vérification globale avec contexte
-        - "<scope>:<actions>:<role>?key=value" : vérification par rôle avec contexte
+        - ``<scope>:<action>`` : action unique sur le scope
+        - ``<scope>:<action1>/<action2>`` : AND — toutes les actions requises
+        - ``<scope>:<action1>|<action2>`` : OR — au moins une action requise
+        - ``<scope>:<action1>/<action2>:<role>`` : AND avec rôle
+        - ``<scope>:<action1>|<action2>:<role>`` : OR avec rôle
+        - ``<scope>:<action1>/<action2>:<role>?key=value`` : AND + rôle + contexte
+        - ``<scope>:<action1>|<action2>:<role>?key=value`` : OR + rôle + contexte
 
     Args:
-        perm: Chaîne de permission au format "<scope>:<actions>:<role>?key=value&key2=value2"
-              - scope: Le scope (ex: 'articles')
-              - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
-              - role: (Optionnel) Slug du rôle pour filtrer
-              - query params: (Optionnel) Contexte sous forme de query parameters
+        perm: Chaîne de permission.
 
     Returns:
-        Tuple contenant (scope, actions_list, role, context_dict)
+        Tuple ``(scope, actions_list, operator, role, context_dict)``
+
+        - *scope*: le scope (ex: ``"orders"``)
+        - *actions_list*: liste des actions nommées (ex: ``["create", "approve"]``)
+        - *operator*: ``"&"`` (AND) ou ``"|"`` (OR)
+        - *role*: slug du rôle ou ``None``
+        - *context_dict*: dictionnaire de contexte extrait des query params
 
     Raises:
         ValueError: Si le format de la permission est invalide
 
     Example:
-        >>> parse_permission('articles:rw')
-        ('articles', ['r', 'w'], None, {})
-        >>> parse_permission('articles:w:admin')
-        ('articles', ['w'], 'admin', {})
-        >>> parse_permission('articles:rw?tenant_id=123&status=published')
-        ('articles', ['r', 'w'], None, {'tenant_id': 123, 'status': 'published'})
-        >>> parse_permission('articles:w:editor?tenant_id=123')
-        ('articles', ['w'], 'editor', {'tenant_id': 123})
+        >>> parse_permission('orders:create/approve')
+        ('orders', ['create', 'approve'], '&', None, {})
+        >>> parse_permission('orders:create|approve')
+        ('orders', ['create', 'approve'], '|', None, {})
+        >>> parse_permission('orders:create/approve:manager')
+        ('orders', ['create', 'approve'], '&', 'manager', {})
+        >>> parse_permission('articles:read?tenant_id=42')
+        ('articles', ['read'], '&', None, {'tenant_id': 42})
     """
     # Séparer la partie principale des query params
     if "?" in perm:
@@ -684,71 +688,84 @@ def parse_permission(perm: str) -> tuple[str, list[str], Optional[str], dict[str
                 query_context[k] = int(v)
     else:
         main_part = perm
-        query_context = {}
+        query_context: dict[str, Any] = {}
 
-    # Parser la partie principale
+    # Parser la partie principale : scope:actions[:role]
     parts = main_part.split(":")
 
     if len(parts) < 2:
         raise ValueError(
             f"Format de permission invalide: '{perm}'. "
-            "Format attendu: '<scope>:<actions>' ou '<scope>:<actions>:<role>' "
-            "ou '<scope>:<actions>:<role>?key=value&key2=value2'"
+            "Format attendu: '<scope>:<action>' ou '<scope>:<action1>/<action2>[:<role>]' "
+            "ou '<scope>:<action1>|<action2>[:<role>]' "
+            "avec ?key=value&key2=value2 optionnel"
         )
 
     scope = parts[0]
     actions_str = parts[1]
     role = parts[2] if len(parts) > 2 else None
 
-    # Convertir la chaîne d'actions en liste
-    # 'rwd' -> ['r', 'w', 'd']
-    actions_list = list(actions_str)
+    # Déterminer l'opérateur et splitter les actions
+    if "/" in actions_str and "|" not in actions_str:
+        operator = "&"  # AND
+        actions_list = [a for a in actions_str.split("/") if a]
+    elif "|" in actions_str and "/" not in actions_str:
+        operator = "|"  # OR
+        actions_list = [a for a in actions_str.split("|") if a]
+    elif "/" in actions_str and "|" in actions_str:
+        raise ValueError(
+            f"Format de permission ambigu: '{perm}'. "
+            "Utilisez soit '/' (AND) soit '|' (OR), pas les deux simultanément."
+        )
+    else:
+        # Action unique (ni / ni |)
+        operator = "&"  # par défaut : AND sur une seule action
+        actions_list = [actions_str]
 
-    return scope, actions_list, role, query_context
+    return scope, actions_list, operator, role, query_context
 
 
 def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
     """
     Vérifie si un utilisateur possède les permissions requises à partir d'une chaîne formatée.
 
+    La chaîne peut utiliser :
+        - ``/`` (AND) : toutes les actions sont requises
+        - ``|`` (OR) : au moins une action est requise
+
     Args:
         user: L'utilisateur dont on vérifie les permissions
-        perm: Chaîne de permission au format "<scope>:<actions>:<role>?key=value&key2=value2"
-              - scope: Le scope à vérifier (ex: 'articles')
-              - actions: Actions requises (ex: 'rw', 'r', 'rwdx')
-              - role: (Optionnel) Slug du rôle pour filtrer
-              - query params: (Optionnel) Contexte sous forme de query parameters
+        perm: Chaîne de permission au format
+              ``<scope>:<action1>/<action2>:<role>?key=value`` (AND)
+              ou ``<scope>:<action1>|<action2>:<role>?key=value`` (OR)
         **context: Contexte additionnel pour filtrer les grants (fusionné avec les query params)
 
     Returns:
         True si l'utilisateur possède les permissions requises, False sinon
 
     Example:
-        >>> # Vérification globale
-        >>> str_check(user, 'articles:r')
+        >>> # Vérification AND : doit avoir create ET approve
+        >>> str_check(user, 'orders:create/approve')
         True
-        >>> # Vérification par rôle
-        >>> str_check(user, 'articles:w:admin')
+        >>> # Vérification OR : doit avoir create OU approve
+        >>> str_check(user, 'orders:create|approve')
         True
-        >>> # Avec contexte via query params
-        >>> str_check(user, 'articles:w?tenant_id=123&status=published')
-        False
         >>> # Avec rôle et contexte
-        >>> str_check(user, 'articles:w:editor?tenant_id=123')
-        True
-        >>> # Contexte mixte (query params + kwargs)
-        >>> str_check(user, 'articles:w?tenant_id=123', level=2)
+        >>> str_check(user, 'orders:create/approve:manager?tenant_id=42')
         False
     """
-    from .caches import cache_check
+    from .caches import cache_check, cache_any_action_check
 
-    # Parser la chaîne de permission
-    scope, required, role, query_context = parse_permission(perm)
+    # Parser la chaîne de permission (nouveau format avec opérateur)
+    scope, required, operator, role, query_context = parse_permission(perm)
 
     # Fusionner les contextes (kwargs ont priorité sur query params)
     final_context = {**query_context, **context}
 
-    return cache_check(user, scope, required, role=role, **final_context)
+    if operator == "|":
+        return cache_any_action_check(user, scope, required, role=role, **final_context)
+    else:
+        return cache_check(user, scope, required, role=role, **final_context)
 
 
 def load_preset(*, force: bool = False) -> dict[str, int]:
@@ -766,6 +783,13 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
     Le preset doit être défini dans settings.PERMISSION_PRESET avec la structure suivante:
 
     PERMISSION_PRESET = {
+        "actions": {
+            "orders": {
+                "create": {"implies": []},
+                "approve": {"implies": ["create"]},
+                "cancel": {"implies": []},
+            },
+        },
         "roles": [
             {
                 "name": "Accountant",
@@ -809,6 +833,7 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
     Returns:
         Dictionnaire avec les statistiques de création:
         {
+            "actions": nombre d'actions enregistrées (toujours 0, car les actions sont déclaratives),
             "roles": nombre de rôles créés,
             "groups": nombre de groupes créés,
             "role_grants": nombre de role_grants créés
@@ -835,7 +860,7 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
             "Attention : cela peut créer des doublons ou modifier les permissions existantes."
         )
 
-    stats = {"roles": 0, "groups": 0, "role_grants": 0}
+    stats = {"actions": 0, "roles": 0, "groups": 0, "role_grants": 0}
 
     # Cache local pour éviter les requêtes répétées
     roles_cache: dict[str, Role] = {}

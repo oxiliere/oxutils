@@ -8,12 +8,30 @@ from pydantic import field_validator
 
 from oxutils.oxiliere.schemas import UserSchema
 
-from .actions import ACTIONS
+from .actions import get_all_valid_actions
+
+
+def _get_valid_scope_keys() -> set[str]:
+    """Return the set of valid scope keys from ACCESS_SCOPES."""
+    scopes = getattr(settings, "ACCESS_SCOPES", [])
+    if not isinstance(scopes, list):
+        return set()
+    keys: set[str] = set()
+    for entry in scopes:
+        if isinstance(entry, dict):
+            keys.add(entry.get("key", ""))
+        else:
+            keys.add(str(entry))
+    return keys
 
 
 def validate_actions_list(actions: list[str]) -> list[str]:
     """
-    Valide qu'une liste d'actions contient uniquement des actions valides.
+    Valide qu'une liste d'actions contient uniquement des actions déclarées
+    dans le preset ``PERMISSION_PRESET["actions"]``.
+
+    Si aucun preset d'actions n'est défini, la validation est permissive
+    (toutes les actions sont acceptées).
 
     Args:
         actions: Liste des actions à valider
@@ -27,9 +45,18 @@ def validate_actions_list(actions: list[str]) -> list[str]:
     if not actions:
         raise ValueError("Les actions ne peuvent pas être vides")
 
-    invalid_actions = [a for a in actions if a not in ACTIONS]
+    valid_actions = get_all_valid_actions()
+
+    # Permissive mode: if no actions are defined in the preset, accept anything
+    if not valid_actions:
+        return actions
+
+    invalid_actions = [a for a in actions if a not in valid_actions]
     if invalid_actions:
-        raise ValueError(f"Actions invalides: {invalid_actions}. Actions valides: {ACTIONS}")
+        raise ValueError(
+            f"Actions invalides: {invalid_actions}. "
+            f"Actions déclarées dans le preset: {sorted(valid_actions)}"
+        )
     return actions
 
 
@@ -278,9 +305,7 @@ class AssignRoleSchema(Schema):
     @classmethod
     def validate_scope(cls, v: str) -> str:
         """Valide que le scope est valide."""
-        scopes = getattr(settings, "ACCESS_SCOPES", [])
-
-        if v not in scopes:
+        if v not in _get_valid_scope_keys():
             raise ValueError(f"Invalid scope '{v}'")
         return v
 
@@ -299,9 +324,7 @@ class OverrideGrantSchema(Schema):
     @classmethod
     def validate_scope(cls, v: str) -> str:
         """Valide que le scope est valide."""
-        scopes = getattr(settings, "ACCESS_SCOPES", [])
-
-        if v not in scopes:
+        if v not in _get_valid_scope_keys():
             raise ValueError(f"Invalid scope '{v}'")
         return v
 
@@ -325,9 +348,7 @@ class RevokeRoleSchema(Schema):
     @classmethod
     def validate_scope(cls, v: str) -> str:
         """Valide que le scope est valide."""
-        scopes = getattr(settings, "ACCESS_SCOPES", [])
-
-        if v not in scopes:
+        if v not in _get_valid_scope_keys():
             raise ValueError(f"Invalid scope '{v}'")
         return v
 
@@ -368,3 +389,30 @@ class PresetLoadResponseSchema(Schema):
     groups_created: int
     role_grants_created: int
     message: str = "Preset chargé avec succès"
+
+
+class ActionLabelSchema(Schema):
+    """
+    Schéma pour une action avec son label traduit.
+    """
+
+    key: str
+    label: str
+
+
+class ScopeActionsResponseSchema(Schema):
+    """
+    Schéma pour la réponse listant les actions d'un scope avec leurs labels.
+    """
+
+    scope: str
+    actions: list[ActionLabelSchema]
+
+
+class ScopeSchema(Schema):
+    """
+    Schéma pour un scope avec son label (affichage frontend).
+    """
+
+    key: str
+    label: str
