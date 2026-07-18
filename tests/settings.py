@@ -91,9 +91,62 @@ ACCESS_MANAGER_SCOPE = 'access'
 ACCESS_MANAGER_GROUP = 'manager'
 ACCESS_MANAGER_ROLE = 'manager'
 ACCESS_MANAGER_CONTEXT = {}
-ACCESS_SCOPES = ['access', 'articles', 'users', 'comments']
+ACCESS_SCOPES = ['access', 'articles', 'users', 'comments', 'orders']
 CACHE_CHECK_PERMISSION = False
 FIELD_MASKING_KEY = 'LCPN2bFN2NHA6XCZscpv8JctYJQ2FTfuVKIunFUchnE='
+
+PERMISSION_PRESET = {
+    "actions": {
+        "articles": {
+            "read": {"implies": [], "label": "Read"},
+            "write": {"implies": ["read"], "label": "Write"},
+            "delete": {"implies": ["read", "write"], "label": "Delete"},
+            "update": {"implies": ["read"], "label": "Update"},
+            "publish": {"implies": ["write"], "label": "Publish"},
+            "archive": {"implies": ["publish"], "label": "Archive"},
+        },
+        "users": {
+            "read": {"implies": [], "label": "Read"},
+            "write": {"implies": ["read"], "label": "Write"},
+            "delete": {"implies": ["read", "write"], "label": "Delete"},
+            "invite": {"implies": [], "label": "Invite"},
+        },
+        "comments": {
+            "read": {"implies": [], "label": "Read"},
+            "write": {"implies": ["read"], "label": "Write"},
+            "moderate": {"implies": ["read", "write"], "label": "Moderate"},
+            "delete": {"implies": ["read", "moderate"], "label": "Delete"},
+        },
+        "orders": {
+            "create": {"implies": [], "label": "Create"},
+            "approve": {"implies": ["create"], "label": "Approve"},
+            "cancel": {"implies": [], "label": "Cancel"},
+            "refund": {"implies": ["approve"], "label": "Refund"},
+            "read": {"implies": [], "label": "Read"},
+        },
+    },
+    "roles": [
+        {
+            "slug": "manager",
+            "name": "Manager",
+        },
+    ],
+    "groups": [
+        {
+            "slug": "manager",
+            "name": "Manager",
+            "roles": ["manager"],
+        },
+    ],
+    "role_grants": [
+        {
+            "role": "manager",
+            "scope": "access",
+            "actions": ["read", "write"],
+            "context": {},
+        },
+    ],
+}
 
 # Django Allauth / Auth settings
 SITE_ID = 1

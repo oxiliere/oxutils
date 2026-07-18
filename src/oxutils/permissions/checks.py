@@ -14,13 +14,13 @@ Example configuration in settings.py:
     ]
 
     CACHE_CHECK_PERMISSION = False
-    
+
     ACCESS_SCOPES = [
         "users",
         "articles",
         "comments"
     ]
-    
+
     PERMISSION_PRESET = {
         "roles": [...],
         "group": [...],
@@ -29,14 +29,14 @@ Example configuration in settings.py:
 """
 
 from django.conf import settings
-from django.core.checks import Error, Warning, register, Tags
+from django.core.checks import Error, Tags, Warning, register
 
 
 @register(Tags.security)
 def check_permission_settings(app_configs, **kwargs):
     """
     Validate permission-related settings.
-    
+
     Checks:
     - ACCESS_MANAGER_SCOPE is defined
     - ACCESS_MANAGER_GROUP is defined (can be None)
@@ -51,47 +51,47 @@ def check_permission_settings(app_configs, **kwargs):
     - PERMISSION_PRESET roles/groups with 'app' have their app in ACCESS_APPLICATIONS
     """
     errors = []
-    
-    # Check ACCESS_MANAGER_SCOPE
+
+    # Check ACCESS_MANAGER_SCOPE — optional, defaults to "access"
     if not hasattr(settings, 'ACCESS_MANAGER_SCOPE'):
         errors.append(
-            Error(
-                'ACCESS_MANAGER_SCOPE is not defined',
-                hint='Add ACCESS_MANAGER_SCOPE = "access" to your settings',
-                id='permissions.E001',
+            Warning(
+                'ACCESS_MANAGER_SCOPE is not defined (defaulting to "access")',
+                hint='Add ACCESS_MANAGER_SCOPE = "access" to your settings to be explicit.',
+                id='permissions.W003',
             )
         )
-    
+
     # Check ACCESS_MANAGER_GROUP
-    if not hasattr(settings, 'ACCESS_MANAGER_GROUP'):
+    if not hasattr(settings, "ACCESS_MANAGER_GROUP"):
         errors.append(
             Error(
-                'ACCESS_MANAGER_GROUP is not defined',
+                "ACCESS_MANAGER_GROUP is not defined",
                 hint='Add ACCESS_MANAGER_GROUP = "manager" or None to your settings',
-                id='permissions.E002',
+                id="permissions.E002",
             )
         )
-    
+
     # Check ACCESS_MANAGER_ROLE
-    if not hasattr(settings, 'ACCESS_MANAGER_ROLE'):
+    if not hasattr(settings, "ACCESS_MANAGER_ROLE"):
         errors.append(
             Error(
-                'ACCESS_MANAGER_ROLE is not defined',
+                "ACCESS_MANAGER_ROLE is not defined",
                 hint='Add ACCESS_MANAGER_ROLE = "admin" or None to your settings',
-                id='permissions.E013',
+                id="permissions.E013",
             )
         )
-    
+
     # Check ACCESS_MANAGER_CONTEXT
-    if not hasattr(settings, 'ACCESS_MANAGER_CONTEXT'):
+    if not hasattr(settings, "ACCESS_MANAGER_CONTEXT"):
         errors.append(
             Error(
-                'ACCESS_MANAGER_CONTEXT is not defined',
-                hint='Add ACCESS_MANAGER_CONTEXT = {} to your settings',
-                id='permissions.E003',
+                "ACCESS_MANAGER_CONTEXT is not defined",
+                hint="Add ACCESS_MANAGER_CONTEXT = {} to your settings",
+                id="permissions.E003",
             )
         )
-    
+
     # Check ACCESS_SCOPES
     if not hasattr(settings, 'ACCESS_SCOPES'):
         errors.append(
@@ -102,23 +102,24 @@ def check_permission_settings(app_configs, **kwargs):
             )
         )
     else:
-        # Validate ACCESS_SCOPES is a list
+        # Validate ACCESS_SCOPES is a list (of strings or dicts)
         if not isinstance(settings.ACCESS_SCOPES, list):
             errors.append(
                 Error(
                     'ACCESS_SCOPES must be a list',
-                    hint='Set ACCESS_SCOPES = ["users", "articles", ...]',
+                    hint='Set ACCESS_SCOPES = ["users", "articles", ...] or '
+                         '[{"key": "...", "label": _("...")}, ...]',
                     id='permissions.E005',
                 )
             )
-    
+
     # Check PERMISSION_PRESET
-    if not hasattr(settings, 'PERMISSION_PRESET'):
+    if not hasattr(settings, "PERMISSION_PRESET"):
         errors.append(
             Warning(
-                'PERMISSION_PRESET is not defined',
-                hint='Add PERMISSION_PRESET dict to your settings or use load_permission_preset',
-                id='permissions.W001',
+                "PERMISSION_PRESET is not defined",
+                hint="Add PERMISSION_PRESET dict to your settings or use load_permission_preset",
+                id="permissions.W001",
             )
         )
     else:
@@ -127,179 +128,246 @@ def check_permission_settings(app_configs, **kwargs):
         if not isinstance(preset, dict):
             errors.append(
                 Error(
-                    'PERMISSION_PRESET must be a dictionary',
-                    id='permissions.E006',
+                    "PERMISSION_PRESET must be a dictionary",
+                    id="permissions.E006",
                 )
             )
         else:
             # Check required keys
-            required_keys = ['roles', 'group', 'role_grants']
+            required_keys = ["roles", "group", "role_grants"]
             for key in required_keys:
                 if key not in preset:
                     errors.append(
                         Error(
-                            f'PERMISSION_PRESET is missing required key: {key}',
+                            f"PERMISSION_PRESET is missing required key: {key}",
                             hint=f'Add "{key}" key to PERMISSION_PRESET',
-                            id=f'permissions.E007',
+                            id=f"permissions.E007",
                         )
                     )
-    
+
+            # Validate that actions used in role_grants exist in the preset
+            if "actions" in preset and isinstance(preset["actions"], dict):
+                all_defined_actions: set[str] = set()
+                for scope_actions in preset["actions"].values():
+                    if isinstance(scope_actions, dict):
+                        all_defined_actions.update(scope_actions.keys())
+
+                for rg in preset.get("role_grants", []):
+                    rg_actions = rg.get("actions", [])
+                    for action in rg_actions:
+                        if action not in all_defined_actions:
+                            errors.append(
+                                Warning(
+                                    f'Action "{action}" in role_grant (role={rg.get("role")}, '
+                                    f"scope={rg.get('scope')}) is not defined in "
+                                    f'PERMISSION_PRESET["actions"]',
+                                    hint=f'Add "{action}" to PERMISSION_PRESET["actions"]["scope"]',
+                                    id="permissions.W002",
+                                )
+                            )
+
     # Check ACCESS_APPLICATIONS (optional, but must be a list if defined)
-    has_applications = hasattr(settings, 'ACCESS_APPLICATIONS')
+    has_applications = hasattr(settings, "ACCESS_APPLICATIONS")
     if has_applications:
         if not isinstance(settings.ACCESS_APPLICATIONS, list):
             errors.append(
                 Error(
-                    'ACCESS_APPLICATIONS must be a list',
+                    "ACCESS_APPLICATIONS must be a list",
                     hint='Set ACCESS_APPLICATIONS = ["crm", "accounting", ...]',
-                    id='permissions.E015',
+                    id="permissions.E015",
                 )
             )
             has_applications = False
-    
-    # Cross-validation: ACCESS_MANAGER_SCOPE in ACCESS_SCOPES
-    if (hasattr(settings, 'ACCESS_MANAGER_SCOPE') and 
-        hasattr(settings, 'ACCESS_SCOPES') and 
-        isinstance(settings.ACCESS_SCOPES, list)):
-        
-        if settings.ACCESS_MANAGER_SCOPE not in settings.ACCESS_SCOPES:
+
+    # Cross-validation: ACCESS_MANAGER_SCOPE in ACCESS_SCOPES — warning only
+    # (the module owns the "access" scope via its permissions.py)
+    if (
+        hasattr(settings, "ACCESS_MANAGER_SCOPE")
+        and hasattr(settings, "ACCESS_SCOPES")
+        and isinstance(settings.ACCESS_SCOPES, list)
+    ):
+        scope_keys = {
+            s["key"] if isinstance(s, dict) else str(s)
+            for s in settings.ACCESS_SCOPES
+        }
+        if settings.ACCESS_MANAGER_SCOPE not in scope_keys:
             errors.append(
-                Error(
+                Warning(
                     f'ACCESS_MANAGER_SCOPE "{settings.ACCESS_MANAGER_SCOPE}" is not in ACCESS_SCOPES',
-                    hint=f'Add "{settings.ACCESS_MANAGER_SCOPE}" to ACCESS_SCOPES list',
-                    id='permissions.E008',
+                    hint=f'Add "{settings.ACCESS_MANAGER_SCOPE}" to ACCESS_SCOPES list if you '
+                         f'want it visible in the frontend. The module manages it internally.',
+                    id="permissions.W004",
                 )
             )
-    
+
     # Cross-validation: ACCESS_MANAGER_GROUP in PERMISSION_PRESET groups
-    if (hasattr(settings, 'ACCESS_MANAGER_GROUP') and 
-        settings.ACCESS_MANAGER_GROUP is not None and
-        hasattr(settings, 'PERMISSION_PRESET') and
-        isinstance(settings.PERMISSION_PRESET, dict) and
-        'group' in settings.PERMISSION_PRESET):
-        
-        group_slugs = [g.get('slug') for g in settings.PERMISSION_PRESET.get('group', [])]
-        
+    if (
+        hasattr(settings, "ACCESS_MANAGER_GROUP")
+        and settings.ACCESS_MANAGER_GROUP is not None
+        and hasattr(settings, "PERMISSION_PRESET")
+        and isinstance(settings.PERMISSION_PRESET, dict)
+        and "group" in settings.PERMISSION_PRESET
+    ):
+        group_slugs = [g.get("slug") for g in settings.PERMISSION_PRESET.get("group", [])]
+
         if settings.ACCESS_MANAGER_GROUP not in group_slugs:
             errors.append(
                 Error(
                     f'ACCESS_MANAGER_GROUP "{settings.ACCESS_MANAGER_GROUP}" is not in PERMISSION_PRESET groups',
                     hint=f'Add a group with slug "{settings.ACCESS_MANAGER_GROUP}" to PERMISSION_PRESET["group"]',
-                    id='permissions.E009',
+                    id="permissions.E009",
                 )
             )
-    
+
     # Cross-validation: ACCESS_MANAGER_ROLE in PERMISSION_PRESET roles
-    if (hasattr(settings, 'ACCESS_MANAGER_ROLE') and 
-        settings.ACCESS_MANAGER_ROLE is not None and
-        hasattr(settings, 'PERMISSION_PRESET') and
-        isinstance(settings.PERMISSION_PRESET, dict) and
-        'roles' in settings.PERMISSION_PRESET):
-        
-        role_slugs = [r.get('slug') for r in settings.PERMISSION_PRESET.get('roles', [])]
-        
+    if (
+        hasattr(settings, "ACCESS_MANAGER_ROLE")
+        and settings.ACCESS_MANAGER_ROLE is not None
+        and hasattr(settings, "PERMISSION_PRESET")
+        and isinstance(settings.PERMISSION_PRESET, dict)
+        and "roles" in settings.PERMISSION_PRESET
+    ):
+        role_slugs = [r.get("slug") for r in settings.PERMISSION_PRESET.get("roles", [])]
+
         if settings.ACCESS_MANAGER_ROLE not in role_slugs:
             errors.append(
                 Error(
                     f'ACCESS_MANAGER_ROLE "{settings.ACCESS_MANAGER_ROLE}" is not in PERMISSION_PRESET roles',
                     hint=f'Add a role with slug "{settings.ACCESS_MANAGER_ROLE}" to PERMISSION_PRESET["roles"]',
-                    id='permissions.E014',
+                    id="permissions.E014",
                 )
             )
-    
+
     # Cross-validation: PERMISSION_PRESET roles/groups app values in ACCESS_APPLICATIONS
-    if (has_applications and
-        hasattr(settings, 'PERMISSION_PRESET') and
-        isinstance(settings.PERMISSION_PRESET, dict)):
-        
+    if (
+        has_applications
+        and hasattr(settings, "PERMISSION_PRESET")
+        and isinstance(settings.PERMISSION_PRESET, dict)
+    ):
         apps_list = settings.ACCESS_APPLICATIONS
-        
-        for role_data in settings.PERMISSION_PRESET.get('roles', []):
-            app = role_data.get('app')
+
+        for role_data in settings.PERMISSION_PRESET.get("roles", []):
+            app = role_data.get("app")
             if app and app not in apps_list:
                 errors.append(
                     Error(
                         f'Role "{role_data.get("slug")}" has app "{app}" which is not in ACCESS_APPLICATIONS',
                         hint=f'Add "{app}" to ACCESS_APPLICATIONS or remove "app" from this role',
-                        id='permissions.E016',
+                        id="permissions.E016",
                     )
                 )
-        
-        for group_data in settings.PERMISSION_PRESET.get('group', []):
-            app = group_data.get('app')
+
+        for group_data in settings.PERMISSION_PRESET.get("group", []):
+            app = group_data.get("app")
             if app and app not in apps_list:
                 errors.append(
                     Error(
                         f'Group "{group_data.get("slug")}" has app "{app}" which is not in ACCESS_APPLICATIONS',
                         hint=f'Add "{app}" to ACCESS_APPLICATIONS or remove "app" from this group',
-                        id='permissions.E017',
+                        id="permissions.E017",
                     )
                 )
-    
+
+    # Cross-validation: scope ownership — each scope in actions must be unique across apps
+    if hasattr(settings, "PERMISSION_PRESET") and isinstance(settings.PERMISSION_PRESET, dict):
+        scope_owners: dict[str, str] = {}
+
+        # Collect scopes from the base preset (settings.py)
+        base_actions = settings.PERMISSION_PRESET.get("actions", {})
+        if isinstance(base_actions, dict):
+            for scope in base_actions:
+                scope_owners[scope] = "settings.PERMISSION_PRESET"
+
+        # Collect scopes from discovered app presets
+        from oxutils.permissions.presets import discover_app_presets
+
+        for preset in discover_app_presets():
+            app_label = preset.get("_app_label", "unknown")
+            preset_actions = preset.get("actions", {})
+            if not isinstance(preset_actions, dict):
+                continue
+            for scope in preset_actions:
+                if scope in scope_owners:
+                    errors.append(
+                        Error(
+                            f'Scope "{scope}" is already owned by "{scope_owners[scope]}". '
+                            f'App "{app_label}" cannot redefine it.',
+                            hint=(
+                                f"Each scope must be owned by exactly one app. "
+                                f'Remove the scope "{scope}" from app "{app_label}" '
+                                f"or use a different scope name."
+                            ),
+                            id="permissions.E022",
+                        )
+                    )
+                else:
+                    scope_owners[scope] = app_label
+
     # Cross-validation: roles/groups with app require ACCESS_APPLICATIONS
-    if (not has_applications and
-        hasattr(settings, 'PERMISSION_PRESET') and
-        isinstance(settings.PERMISSION_PRESET, dict)):
-        
+    if (
+        not has_applications
+        and hasattr(settings, "PERMISSION_PRESET")
+        and isinstance(settings.PERMISSION_PRESET, dict)
+    ):
         has_app_attr = False
-        for role_data in settings.PERMISSION_PRESET.get('roles', []):
-            if role_data.get('app'):
+        for role_data in settings.PERMISSION_PRESET.get("roles", []):
+            if role_data.get("app"):
                 has_app_attr = True
                 break
-        
+
         if not has_app_attr:
-            for group_data in settings.PERMISSION_PRESET.get('group', []):
-                if group_data.get('app'):
+            for group_data in settings.PERMISSION_PRESET.get("group", []):
+                if group_data.get("app"):
                     has_app_attr = True
                     break
-        
+
         if has_app_attr:
             errors.append(
                 Error(
                     'ACCESS_APPLICATIONS is required when roles or groups define an "app" attribute',
                     hint='Add ACCESS_APPLICATIONS = ["crm", "oxutils", ...] to your settings',
-                    id='permissions.E018',
+                    id="permissions.E018",
                 )
             )
-    
+
     # Validate ACCESS_MANAGER_CONTEXT is a dict
-    if hasattr(settings, 'ACCESS_MANAGER_CONTEXT'):
+    if hasattr(settings, "ACCESS_MANAGER_CONTEXT"):
         if not isinstance(settings.ACCESS_MANAGER_CONTEXT, dict):
             errors.append(
                 Error(
-                    'ACCESS_MANAGER_CONTEXT must be a dictionary',
-                    hint='Set ACCESS_MANAGER_CONTEXT = {}',
-                    id='permissions.E010',
+                    "ACCESS_MANAGER_CONTEXT must be a dictionary",
+                    hint="Set ACCESS_MANAGER_CONTEXT = {}",
+                    id="permissions.E010",
                 )
             )
-    
+
     # Check CACHE_CHECK_PERMISSION and cacheops dependency
-    if hasattr(settings, 'CACHE_CHECK_PERMISSION') and settings.CACHE_CHECK_PERMISSION:
-        if not hasattr(settings, 'INSTALLED_APPS'):
+    if hasattr(settings, "CACHE_CHECK_PERMISSION") and settings.CACHE_CHECK_PERMISSION:
+        if not hasattr(settings, "INSTALLED_APPS"):
             errors.append(
                 Error(
-                    'INSTALLED_APPS is not defined',
-                    id='permissions.E011',
+                    "INSTALLED_APPS is not defined",
+                    id="permissions.E011",
                 )
             )
-        elif 'cacheops' not in settings.INSTALLED_APPS:
+        elif "cacheops" not in settings.INSTALLED_APPS:
             errors.append(
                 Error(
-                    'CACHE_CHECK_PERMISSION is True but cacheops is not in INSTALLED_APPS',
+                    "CACHE_CHECK_PERMISSION is True but cacheops is not in INSTALLED_APPS",
                     hint='Add "cacheops" to INSTALLED_APPS or set CACHE_CHECK_PERMISSION = False',
-                    id='permissions.E012',
+                    id="permissions.E012",
                 )
             )
-    
+
     # Validate EXTRA_PERMISSIONS
-    if hasattr(settings, 'EXTRA_PERMISSIONS'):
+    if hasattr(settings, "EXTRA_PERMISSIONS"):
         extra = settings.EXTRA_PERMISSIONS
         if not isinstance(extra, (list, tuple)):
             errors.append(
                 Error(
-                    'EXTRA_PERMISSIONS must be a list or tuple',
+                    "EXTRA_PERMISSIONS must be a list or tuple",
                     hint='Set EXTRA_PERMISSIONS = ["dotted.path.ToPermission", ...]',
-                    id='permissions.E019',
+                    id="permissions.E019",
                 )
             )
         else:
@@ -309,9 +377,9 @@ def check_permission_settings(app_configs, **kwargs):
                 if not isinstance(path, str):
                     errors.append(
                         Error(
-                            f'Each entry in EXTRA_PERMISSIONS must be a string, got {type(path).__name__}',
+                            f"Each entry in EXTRA_PERMISSIONS must be a string, got {type(path).__name__}",
                             hint='Use dotted paths like "myapp.permissions.MyPermission"',
-                            id='permissions.E020',
+                            id="permissions.E020",
                         )
                     )
                     continue
@@ -321,8 +389,8 @@ def check_permission_settings(app_configs, **kwargs):
                     errors.append(
                         Error(
                             f'Cannot import "{path}" from EXTRA_PERMISSIONS',
-                            hint='Check that the module and class exist',
-                            id='permissions.E021',
+                            hint="Check that the module and class exist",
+                            id="permissions.E021",
                         )
                     )
                     continue

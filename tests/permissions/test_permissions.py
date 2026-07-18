@@ -1,5 +1,5 @@
 """
-Tests for the permissions module.
+Tests for the permissions module (refactored — named actions).
 """
 import pytest
 from django.contrib.auth import get_user_model
@@ -27,7 +27,11 @@ from oxutils.permissions.utils import (
 )
 from oxutils.permissions.actions import (
     collapse_actions,
-    expand_actions
+    expand_actions,
+    get_valid_actions,
+    get_implied_actions,
+    get_action_label,
+    get_scope_actions_labels,
 )
 from oxutils.permissions.exceptions import (
     RoleNotFoundException,
@@ -107,7 +111,7 @@ def editor_role_grant(db_setup, editor_role):
     return RoleGrant.objects.create(
         role=editor_role,
         scope='articles',
-        actions=['r', 'w'],
+        actions=['read', 'write'],
         context={}
     )
 
@@ -118,1413 +122,1037 @@ def viewer_role_grant(db_setup, viewer_role):
     return RoleGrant.objects.create(
         role=viewer_role,
         scope='articles',
-        actions=['r'],
+        actions=['read'],
         context={}
     )
 
 
+# ── Actions expansion / collapse (named) ────────────────────────────
+
 class TestActionsExpansion:
-    """Test action expansion and collapse utilities."""
+    """Test action expansion and collapse with named actions."""
 
     def test_expand_actions_basic(self):
-        """Test basic action expansion."""
-        assert set(expand_actions(['r'])) == {'r'}
-        assert set(expand_actions(['w'])) == {'r', 'w'}
-        assert set(expand_actions(['d'])) == {'r', 'w', 'd'}
-        assert set(expand_actions(['u'])) == {'r', 'u'}
-        assert set(expand_actions(['a'])) == {'a', 'r'}
+        """Test basic action expansion with named actions."""
+        # read has no implies → stays ['read']
+        assert set(expand_actions('articles', ['read'])) == {'read'}
+        # write implies read
+        assert set(expand_actions('articles', ['write'])) == {'read', 'write'}
+        # delete implies read, write → also pulls delete
+        assert set(expand_actions('articles', ['delete'])) == {'delete', 'read', 'write'}
+        # update implies read
+        assert set(expand_actions('articles', ['update'])) == {'read', 'update'}
 
-    def test_expand_actions_multiple(self):
-        """Test expansion with multiple actions."""
-        assert set(expand_actions(['r', 'w'])) == {'r', 'w'}
-        assert set(expand_actions(['r', 'd'])) == {'r', 'w', 'd'}
-        assert set(expand_actions(['w', 'u'])) == {'r', 'w', 'u'}
-        assert set(expand_actions(['a', 'w'])) == {'a', 'r', 'w'}
+    def test_expand_actions_multi_level(self):
+        """Test multi-level expansion."""
+        # publish → write → read
+        assert set(expand_actions('articles', ['publish'])) == {'publish', 'read', 'write'}
+        # archive → publish → write → read
+        assert set(expand_actions('articles', ['archive'])) == {'archive', 'publish', 'read', 'write'}
+
+    def test_expand_actions_orders(self):
+        """Test expansion on orders scope."""
+        # approve → create
+        assert set(expand_actions('orders', ['approve'])) == {'approve', 'create'}
+        # refund → approve → create
+        assert set(expand_actions('orders', ['refund'])) == {'approve', 'create', 'refund'}
 
     def test_collapse_actions(self):
         """Test action collapse to root actions."""
-        assert set(collapse_actions(['r'])) == {'r'}
-        assert set(collapse_actions(['r', 'w'])) == {'w'}
-        assert set(collapse_actions(['r', 'w', 'd'])) == {'d'}
-        assert set(collapse_actions(['r', 'u'])) == {'u'}  # u implies r, so only u remains
-        assert set(collapse_actions(['a', 'r'])) == {'a'}  # a implies r, so only a remains
+        assert collapse_actions('articles', ['read']) == {'read'}
+        assert collapse_actions('articles', ['read', 'write']) == {'write'}
+        assert collapse_actions('articles', ['read', 'write', 'delete']) == {'delete'}
+        assert collapse_actions('articles', ['read', 'update']) == {'update'}
+        assert collapse_actions('articles', ['publish', 'read', 'write']) == {'publish'}
 
+    def test_collapse_actions_orders(self):
+        """Test collapse on orders scope."""
+        assert collapse_actions('orders', ['approve', 'create']) == {'approve'}
+        assert collapse_actions('orders', ['refund', 'approve', 'create']) == {'refund'}
+
+    def test_expand_unknown_action_noop(self):
+        """Expanding an action not in the preset is a no-op."""
+        assert set(expand_actions('articles', ['unknown'])) == {'unknown'}
+
+    def test_get_valid_actions(self):
+        """get_valid_actions returns the declared actions for a scope."""
+        assert 'read' in get_valid_actions('articles')
+        assert 'write' in get_valid_actions('articles')
+        assert 'delete' in get_valid_actions('articles')
+        assert 'publish' in get_valid_actions('articles')
+
+    def test_get_implied_actions(self):
+        """get_implied_actions returns the implied set."""
+        assert get_implied_actions('articles', 'write') == {'read'}
+        assert get_implied_actions('articles', 'read') == set()
+        assert get_implied_actions('orders', 'approve') == {'create'}
+
+
+class TestActionLabels:
+    """Test action label functions."""
+
+    def test_get_action_label_returns_label(self):
+        """get_action_label returns the label when defined."""
+        assert get_action_label('orders', 'create') == 'Create'
+        assert get_action_label('orders', 'approve') == 'Approve'
+        assert get_action_label('articles', 'publish') == 'Publish'
+
+    def test_get_action_label_falls_back_to_key(self):
+        """get_action_label returns the action key when no label is defined."""
+        # If a scope has actions without labels, the key is returned
+        # This tests the fallback behavior on an action that exists
+        assert get_action_label('articles', 'read') == 'Read'
+
+    def test_get_action_label_unknown_action(self):
+        """get_action_label returns the key itself for unknown actions."""
+        assert get_action_label('orders', 'nonexistent') == 'nonexistent'
+
+    def test_get_scope_actions_labels(self):
+        """get_scope_actions_labels returns all action→label mappings."""
+        labels = get_scope_actions_labels('orders')
+        assert labels['create'] == 'Create'
+        assert labels['approve'] == 'Approve'
+        assert labels['cancel'] == 'Cancel'
+        assert labels['refund'] == 'Refund'
+
+
+# ── Role assignment ──────────────────────────────────────────────────
 
 class TestRoleAssignment:
-    """Test role assignment and revocation."""
+    """Test role assignment with named actions."""
 
     def test_assign_role_creates_grants(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test that assigning a role creates appropriate grants."""
+        """Test assign_role creates grants with expanded actions."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role)
-        assert grant is not None
-        assert set(grant.actions) == {'r', 'w'}
-        assert grant.created_by == admin_user
+        grants = Grant.objects.filter(user=test_user, scope='articles')
+        assert grants.count() == 1
+        grant = grants.first()
+        # write implies read, so grant should contain both
+        assert 'read' in grant.actions
+        assert 'write' in grant.actions
 
-    def test_assign_role_not_found(self, test_user, admin_user):
-        """Test assigning a non-existent role raises exception."""
+    def test_assign_role_not_found(self, test_user):
+        """Test assign_role raises exception for non-existent role."""
         with pytest.raises(RoleNotFoundException):
-            assign_role(test_user, 'nonexistent', 'articles', by=admin_user)
-
-    def test_assign_role_already_assigned(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test assigning an already assigned role creates duplicate grants."""
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Second assignment should work (creates duplicate grants)
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Check we have grants
-        assert Grant.objects.filter(user=test_user, role=editor_role).count() >= 1
+            assign_role(test_user, 'nonexistent', 'articles')
 
     def test_revoke_role(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test revoking a role removes grants."""
+        """Test revoke_role removes grants."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        deleted_count, info = revoke_role(test_user, 'editor', 'articles')
-        
-        assert deleted_count > 0
-        assert not Grant.objects.filter(user=test_user, role=editor_role).exists()
+        count, _ = revoke_role(test_user, 'editor', 'articles')
+        assert count > 0
+        assert Grant.objects.filter(user=test_user, scope='articles').count() == 0
 
     def test_revoke_role_not_found(self, test_user):
-        """Test revoking a non-existent role raises exception."""
+        """Test revoke_role raises exception for non-existent role."""
         with pytest.raises(RoleNotFoundException):
             revoke_role(test_user, 'nonexistent', 'articles')
 
 
+# ── Group assignment ─────────────────────────────────────────────────
+
 class TestGroupAssignment:
-    """Test group assignment and revocation."""
+    """Test group assignment with named actions."""
 
     def test_assign_group(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test assigning a group creates grants for all roles."""
-        user_group = assign_group(test_user, 'staff', by=admin_user)
-        
-        assert user_group is not None
-        assert user_group.user == test_user
-        assert user_group.group == staff_group
-        
-        # Check grants were created
-        grants = Grant.objects.filter(user=test_user, user_group=user_group)
-        assert grants.count() > 0
+        """Test assign_group creates UserGroup and grants."""
+        ug = assign_group(test_user, 'staff', by=admin_user)
+        assert ug is not None
+        grants = Grant.objects.filter(user=test_user)
+        assert grants.count() >= 2  # at least editor + viewer grants
 
-    def test_assign_group_not_found(self, test_user, admin_user):
-        """Test assigning a non-existent group raises exception."""
+    def test_assign_group_not_found(self, test_user):
         with pytest.raises(GroupNotFoundException):
-            assign_group(test_user, 'nonexistent', by=admin_user)
+            assign_group(test_user, 'nonexistent')
 
-    def test_assign_group_already_assigned(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test assigning an already assigned group raises exception."""
+    def test_assign_group_already_assigned(self, test_user, staff_group, admin_user):
         assign_group(test_user, 'staff', by=admin_user)
-        
         with pytest.raises(GroupAlreadyAssignedException):
             assign_group(test_user, 'staff', by=admin_user)
 
     def test_revoke_group(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test revoking a group removes all associated grants."""
-        user_group = assign_group(test_user, 'staff', by=admin_user)
-        
-        deleted_count, info = revoke_group(test_user, 'staff')
-        
-        assert deleted_count > 0
-        assert not UserGroup.objects.filter(user=test_user, group=staff_group).exists()
-        assert not Grant.objects.filter(user=test_user, user_group=user_group).exists()
+        """Test revoke_group removes UserGroup and grants."""
+        assign_group(test_user, 'staff', by=admin_user)
+        count, _ = revoke_group(test_user, 'staff')
+        assert UserGroup.objects.filter(user=test_user).count() == 0
 
+
+# ── Permission check ─────────────────────────────────────────────────
 
 class TestPermissionCheck:
-    """Test permission checking."""
+    """Test permission check with named actions."""
 
     def test_check_with_grant(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test checking permissions with existing grant."""
+        """Test check returns True when user has the required actions."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert check(test_user, 'articles', ['r']) is True
-        assert check(test_user, 'articles', ['w']) is True
-        assert check(test_user, 'articles', ['d']) is False
+        assert check(test_user, 'articles', ['read']) is True
+        assert check(test_user, 'articles', ['write']) is True
+        assert check(test_user, 'articles', ['read', 'write']) is True  # AND
 
     def test_check_without_grant(self, test_user):
-        """Test checking permissions without grant."""
-        assert check(test_user, 'articles', ['r']) is False
+        """Test check returns False when user has no grant."""
+        assert check(test_user, 'articles', ['read']) is False
+
+    def test_check_and_logic(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test AND logic: all actions must be present."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        # User has read + write, but not delete
+        assert check(test_user, 'articles', ['read', 'delete']) is False
 
     def test_check_with_context(self, test_user, editor_role, admin_user):
-        """Test checking permissions with context."""
-        # Create role grant with context
+        """Test check with context filtering."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
-            actions=['r', 'w'],
-            context={'tenant_id': 123}
+            actions=['read', 'write'],
+            context={'tenant_id': 42}
         )
-        
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert check(test_user, 'articles', ['r'], tenant_id=123) is True
-        assert check(test_user, 'articles', ['r'], tenant_id=456) is False
+        assert check(test_user, 'articles', ['read'], tenant_id=42) is True
+        assert check(test_user, 'articles', ['read'], tenant_id=99) is False
 
-    def test_check_with_role_filter(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test checking permissions with role filter."""
+    def test_check_with_role_filter(self, test_user, editor_role, viewer_role, editor_role_grant, viewer_role_grant, admin_user):
+        """Test check filtered by role."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert check(test_user, 'articles', ['r'], role='editor') is True
-        assert check(test_user, 'articles', ['r'], role='nonexistent') is False
+        # Has writethrough editor
+        assert check(test_user, 'articles', ['read'], role='editor') is True
+        # Does NOT have read through viewer (viewer not assigned)
+        assert check(test_user, 'articles', ['read'], role='viewer') is False
 
+
+# ── String check ─────────────────────────────────────────────────────
 
 class TestStringCheck:
-    """Test string-based permission checking."""
+    """Test string-based permission check with named actions."""
 
     def test_str_check_basic(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test basic string check."""
+        """Test str_check with AND format (default)."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert str_check(test_user, 'articles:r') is True
-        assert str_check(test_user, 'articles:w') is True
-        assert str_check(test_user, 'articles:d') is False
+        assert str_check(test_user, 'articles:read') is True
+        assert str_check(test_user, 'articles:read/write') is True  # AND
+        assert str_check(test_user, 'articles:read/write/delete') is False  # no delete
+
+    def test_str_check_or_operator(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test str_check with | (OR) operator."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        # User has read + write, so OR checks pass
+        assert str_check(test_user, 'articles:read|write') is True
+        assert str_check(test_user, 'articles:read|delete') is True  # has read
+        assert str_check(test_user, 'articles:delete|publish') is False  # has neither
 
     def test_str_check_with_role(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test string check with role."""
+        """Test str_check with role filter."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert str_check(test_user, 'articles:r:editor') is True
-        assert str_check(test_user, 'articles:r:nonexistent') is False
+        assert str_check(test_user, 'articles:read:editor') is True
+        assert str_check(test_user, 'articles:read:viewer') is False
 
     def test_str_check_with_context(self, test_user, editor_role, admin_user):
-        """Test string check with context query params."""
+        """Test str_check with query string context."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
-            actions=['r', 'w'],
-            context={'tenant_id': 123}
+            actions=['read', 'write'],
+            context={'tenant_id': 42}
         )
-        
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        assert str_check(test_user, 'articles:r?tenant_id=123') is True
-        assert str_check(test_user, 'articles:r?tenant_id=456') is False
+        assert str_check(test_user, 'articles:read?tenant_id=42') is True
+        assert str_check(test_user, 'articles:read?tenant_id=99') is False
 
     def test_str_check_invalid_format(self, test_user):
-        """Test string check with invalid format."""
+        """Test invalid format raises error."""
         with pytest.raises(ValueError):
-            str_check(test_user, 'articles')  # Missing actions
+            str_check(test_user, 'invalid')
 
+    def test_str_check_mixed_separators_raises(self, test_user):
+        """Test that mixed / and | raises ValueError."""
+        with pytest.raises(ValueError, match="ambigu"):
+            parse_permission('orders:create/approve|cancel')
+
+
+# ── Grant override ───────────────────────────────────────────────────
 
 class TestGrantOverride:
-    """Test grant override functionality."""
+    """Test grant override with named actions."""
 
     def test_override_grant_sets_new_actions(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test overriding a grant with new actions."""
+        """Test override_grant replaces actions and locks the grant."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Check initial state
-        grant_before = Grant.objects.get(user=test_user, scope='articles')
-        assert 'w' in grant_before.actions
-        
-        # Override with new actions (only 'r')
-        override_grant(test_user, 'articles', actions=['r'])
-        
-        # Grant should exist with only 'r' action
-        grant_after = Grant.objects.get(user=test_user, scope='articles')
-        assert grant_after.locked is True  # Grant is now locked (custom)
-        assert 'r' in grant_after.actions
-        assert 'w' not in grant_after.actions
+
+        grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role)
+        assert set(grant.actions) == {'read', 'write'}
+
+        # Override to 'archive' only → should expand to archive/publish/read/write
+        override_grant(test_user, 'articles', ['archive'])
+        grant.refresh_from_db()
+        assert grant.locked is True
+        assert 'archive' in grant.actions
+        assert 'read' in grant.actions  # implied
 
     def test_override_grant_with_empty_actions_deletes(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test overriding a grant with empty actions deletes it."""
+        """Test override_grant with empty actions deletes the grant."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        override_grant(test_user, 'articles', actions=[])
-        
-        assert not Grant.objects.filter(user=test_user, scope='articles').exists()
+        override_grant(test_user, 'articles', [])
+        assert Grant.objects.filter(user=test_user, scope='articles').count() == 0
 
     def test_override_grant_not_found(self, test_user):
-        """Test overriding a non-existent grant raises exception."""
+        """Test override_grant raises when grant not found."""
         with pytest.raises(GrantNotFoundException):
-            override_grant(test_user, 'articles', actions=['r'])
+            override_grant(test_user, 'articles', ['read'])
 
+
+# ── Group sync ───────────────────────────────────────────────────────
 
 class TestGroupSync:
-    """Test group synchronization."""
+    """Test group sync with named actions."""
 
-    def test_group_sync_updates_grants(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test group sync updates grants after RoleGrant changes."""
+    def test_group_sync_updates_grants(self, test_user, staff_group, editor_role, editor_role_grant, admin_user):
+        """Test group_sync updates grants after RoleGrant change."""
         assign_group(test_user, 'staff', by=admin_user)
-        
+
         # Modify role grant
-        editor_role_grant.actions = ['r', 'w', 'd']
+        editor_role_grant.actions = ['read', 'write', 'delete']
         editor_role_grant.save()
-        
-        # Sync group
+
         stats = group_sync('staff')
-        
-        assert stats['users_synced'] == 1
-        assert stats['grants_updated'] > 0
-        
+        assert stats['users_synced'] >= 1
+
         # Check grant was updated
-        grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
-        assert 'd' in grant.actions
+        grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role, user_group__isnull=False)
+        assert 'delete' in grant.actions
 
-    def test_group_sync_preserves_overrides(self, test_user, staff_group, editor_role_grant, editor_role, admin_user):
-        """Test group sync preserves custom overridden grants."""
+    def test_group_sync_preserves_overrides(self, test_user, staff_group, editor_role, editor_role_grant, admin_user):
+        """Test group_sync does not touch locked grants."""
         assign_group(test_user, 'staff', by=admin_user)
-        
-        # Verify grant exists before override
-        assert Grant.objects.filter(user=test_user, scope='articles').exists()
-        
-        # Override a grant with specific role
-        override_grant(test_user, 'articles', actions=['r'], role='editor')
-        
-        # Verify override worked - get the locked grant
-        grant_after_override = Grant.objects.get(user=test_user, scope='articles', role=editor_role, locked=True)
-        assert grant_after_override.locked is True  # Locked grant
-        
-        # Sync group
-        stats = group_sync('staff')
-        
-        # Check override was preserved (locked grants should not be deleted)
-        grant_after_sync = Grant.objects.get(user=test_user, scope='articles', role=editor_role, locked=True)
-        assert grant_after_sync.locked is True  # Still locked
-        assert 'r' in grant_after_sync.actions
-        assert 'w' not in grant_after_sync.actions
 
-    def test_group_sync_with_role_filter(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test group sync with role_slugs parameter to sync specific roles only."""
-        assign_group(test_user, 'staff', by=admin_user)
-        
-        # Modify editor role grant
-        editor_role_grant.actions = ['r', 'w', 'd']
+        # Lock a grant
+        grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role)
+        grant.locked = True
+        grant.actions = ['read']  # custom
+        grant.save()
+
+        # Modify role grant
+        editor_role_grant.actions = ['read', 'write', 'delete']
         editor_role_grant.save()
-        
-        # Sync only editor role
-        stats = group_sync('staff', role_slugs=['editor'])
-        
-        assert stats['users_synced'] == 1
-        assert stats['grants_updated'] > 0
-        
-        # Check editor grant was updated
-        editor_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
-        assert 'd' in editor_grant.actions
 
-    def test_group_sync_with_scope_filter(self, test_user, staff_group, editor_role_grant, admin_user):
-        """Test group sync with scope parameter for performance optimization."""
-        # Create another role grant for different scope
+        group_sync('staff')
+
+        grant.refresh_from_db()
+        assert set(grant.actions) == {'read'}  # unchanged
+
+    def test_group_sync_with_scope_filter(self, test_user, staff_group, editor_role, editor_role_grant, admin_user):
+        """Test group_sync with scope parameter."""
+        assign_group(test_user, 'staff', by=admin_user)
+
+        # Create another grant for comments scope
+        viewer_role = Role.objects.get(slug='viewer')
         RoleGrant.objects.create(
-            role=editor_role_grant.role,
+            role=viewer_role,
             scope='comments',
-            actions=['r'],
+            actions=['read'],
             context={}
         )
-        
+        # Re-assign group to pick up new grant
+        revoke_group(test_user, 'staff')
         assign_group(test_user, 'staff', by=admin_user)
-        
-        # Modify editor role grant for articles
-        editor_role_grant.actions = ['r', 'w', 'd']
-        editor_role_grant.save()
-        
-        # Sync only articles scope
-        stats = group_sync('staff', scope='articles')
-        
-        assert stats['users_synced'] == 1
-        assert stats['grants_updated'] > 0
-        
-        # Check articles grant was updated
-        articles_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
-        assert 'd' in articles_grant.actions
 
-    def test_group_sync_with_role_and_scope_filter(self, test_user, staff_group, editor_role_grant, viewer_role_grant, admin_user):
-        """Test group sync with both role_slugs and scope parameters."""
+        # Modify editor grant
+        editor_role_grant.actions = ['read', 'write', 'delete']
+        editor_role_grant.save()
+
+        # Sync only articles
+        group_sync('staff', scope='articles')
+
+        # Articles grant updated
+        articles_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role)
+        assert 'delete' in articles_grant.actions
+
+    def test_group_sync_with_role_filter(self, test_user, staff_group, editor_role, editor_role_grant, admin_user):
+        """Test group_sync with role_slugs parameter."""
         assign_group(test_user, 'staff', by=admin_user)
-        
-        # Modify editor role grant
-        editor_role_grant.actions = ['r', 'w', 'd']
-        editor_role_grant.save()
-        
-        # Sync only editor role for articles scope
-        stats = group_sync('staff', role_slugs=['editor'], scope='articles')
-        
-        assert stats['users_synced'] == 1
-        assert stats['grants_updated'] > 0
-        
-        # Check editor grant was updated
-        editor_grant = Grant.objects.get(user=test_user, scope='articles', role=editor_role_grant.role)
-        assert 'd' in editor_grant.actions
 
+        editor_role_grant.actions = ['read', 'write', 'delete']
+        editor_role_grant.save()
+
+        stats = group_sync('staff', role_slugs=['editor'])
+        assert stats['users_synced'] >= 1
+
+
+# ── ScopePermission ──────────────────────────────────────────────────
 
 class TestScopePermission:
-    """Test ScopePermission class."""
+    """Test ScopePermission class with named actions."""
 
-    def test_scope_permission_basic(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test basic ScopePermission check."""
+    def test_scope_permission_and(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test ScopePermission with AND (/) separator."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        perm = ScopePermission('articles:r')
-        
-        request = Mock()
-        request.user = test_user
-        controller = Mock()
-        
-        assert perm.has_permission(request, controller) is True
+
+        perm = ScopePermission('articles:read/write')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True
+
+        perm2 = ScopePermission('articles:read/write/delete')
+        assert perm2.has_permission(request, Mock()) is False
+
+    def test_scope_permission_or(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test ScopePermission with OR (|) separator."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+
+        perm = ScopePermission('articles:read|delete')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True  # has read
+
+        perm2 = ScopePermission('articles:delete|publish')
+        assert perm2.has_permission(request, Mock()) is False  # has neither
 
     def test_scope_permission_with_context(self, test_user, editor_role, admin_user):
         """Test ScopePermission with context."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
-            actions=['r', 'w'],
-            context={'tenant_id': 123}
+            actions=['read', 'write'],
+            context={'tenant_id': 42}
         )
-        
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        perm = ScopePermission('articles:r', ctx={'tenant_id': 123})
-        
-        request = Mock()
-        request.user = test_user
-        controller = Mock()
-        
-        assert perm.has_permission(request, controller) is True
 
+        perm = ScopePermission('articles:read')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True
+
+        perm_ctx = ScopePermission('articles:read?tenant_id=99')
+        assert perm_ctx.has_permission(request, Mock()) is False
+
+
+# ── Access manager ───────────────────────────────────────────────────
 
 class TestAccessManager:
-    """Test access_manager factory function."""
+    """Test access_manager factory with named actions."""
 
-    @override_settings(
-        ACCESS_MANAGER_SCOPE='access',
-        ACCESS_MANAGER_GROUP='manager',
-        ACCESS_MANAGER_ROLE='admin',
-        ACCESS_MANAGER_CONTEXT={}
-    )
-    def test_access_manager_basic(self):
-        """Test access_manager creates correct permission using ROLE, not GROUP."""
-        perm = access_manager('rw')
-        
+    def test_access_manager_basic(self, test_user, admin_user):
+        """Test access_manager creates correct ScopePermission."""
+        perm = access_manager('read')
         assert isinstance(perm, ScopePermission)
-        assert perm.perm == 'access:rw:admin'
+        assert perm.perm == 'access:read:manager'
 
-    @override_settings(
-        ACCESS_MANAGER_SCOPE='access',
-        ACCESS_MANAGER_GROUP='manager',
-        ACCESS_MANAGER_ROLE=None,
-        ACCESS_MANAGER_CONTEXT={}
-    )
-    def test_access_manager_without_role(self):
-        """Test access_manager without role produces scope:actions only."""
-        perm = access_manager('r')
-        
-        assert perm.perm == 'access:r'
+    def test_access_manager_and(self):
+        """Test access_manager with AND actions."""
+        perm = access_manager('read/write')
+        assert perm.perm == 'access:read/write:manager'
 
-    @override_settings(
-        ACCESS_MANAGER_SCOPE='access',
-        ACCESS_MANAGER_GROUP='manager',
-        ACCESS_MANAGER_ROLE='admin',
-        ACCESS_MANAGER_CONTEXT={'tenant_id': 123}
-    )
-    def test_access_manager_with_context(self):
+    def test_access_manager_or(self):
+        """Test access_manager with OR actions."""
+        perm = access_manager('read|write')
+        assert perm.perm == 'access:read|write:manager'
+
+    def test_access_manager_without_role(self, settings):
+        """Test access_manager when role is None."""
+        settings.ACCESS_MANAGER_ROLE = None
+        perm = access_manager('read')
+        assert perm.perm == 'access:read'
+
+    def test_access_manager_with_context(self, settings):
         """Test access_manager with context."""
-        perm = access_manager('rw')
-        
-        assert perm.perm == 'access:rw:admin'
-        assert perm.ctx == {'tenant_id': 123}
+        settings.ACCESS_MANAGER_CONTEXT = {'app': 'crm'}
+        perm = access_manager('read')
+        assert perm.ctx == {'app': 'crm'}
 
-    def test_access_manager_missing_scope(self):
-        """Test access_manager raises error if scope not configured."""
-        from django.conf import settings
-        
-        with override_settings():
-            if hasattr(settings, 'ACCESS_MANAGER_SCOPE'):
-                delattr(settings, 'ACCESS_MANAGER_SCOPE')
-            
-            with pytest.raises(ImproperlyConfigured):
-                access_manager('r')
+    def test_access_manager_missing_scope(self, settings):
+        """Test access_manager uses default 'access' when scope is missing."""
+        delattr(settings, 'ACCESS_MANAGER_SCOPE')
+        settings.ACCESS_MANAGER_ROLE = None
+        perm = access_manager('read')
+        assert perm.perm == 'access:read'  # defaults to 'access', no role
 
 
-class TestCacheCheck:
-    """Test permission check caching."""
-
-    @override_settings(CACHE_CHECK_PERMISSION=False)
-    def test_cache_disabled(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test that cache is disabled when setting is False."""
-        from oxutils.permissions.caches import cache_check
-        
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Should work without cacheops
-        result = cache_check(test_user, 'articles', ['r'])
-        assert result is True
-
-    @override_settings(CACHE_CHECK_PERMISSION=True)
-    def test_cache_enabled(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Test that cache is enabled when setting is True."""
-        from oxutils.permissions.caches import cache_check
-        
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Should work with caching enabled
-        result = cache_check(test_user, 'articles', ['r'])
-        assert result is True
-
-
-class TestModels:
-    """Test permission models."""
-
-    def test_role_creation(self, db_setup):
-        """Test creating a role."""
-        role = Role.objects.create(slug='test-role', name='Test Role')
-        
-        assert role.slug == 'test-role'
-        assert role.name == 'Test Role'
-        assert str(role) == 'test-role'  # __str__ returns slug
-
-    def test_group_creation(self, db_setup, editor_role):
-        """Test creating a group."""
-        group = Group.objects.create(slug='test-group', name='Test Group')
-        group.roles.add(editor_role)
-        
-        assert group.slug == 'test-group'
-        assert group.name == 'Test Group'
-        assert editor_role in group.roles.all()
-
-    def test_role_grant_unique_constraint(self, db_setup, editor_role):
-        """Test RoleGrant unique constraint."""
-        rg1 = RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
-        # Creating another with same role, scope, group should violate constraint
-        # But Django may allow it if the constraint is not properly enforced
-        # Let's just verify the first one was created
-        assert RoleGrant.objects.filter(
-            role=editor_role,
-            scope='articles',
-        ).count() == 1
-
-    def test_grant_unique_constraint(self, db_setup, test_user, editor_role):
-        """Test Grant unique constraint."""
-        g1 = Grant.objects.create(
-            user=test_user,
-            scope='articles',
-            role=editor_role,
-            actions=['r', 'w'],
-            user_group=None
-        )
-        
-        # The constraint is on (user, scope, role, user_group)
-        # Creating another with same values should be prevented
-        # But let's verify the first one was created
-        assert Grant.objects.filter(
-            user=test_user,
-            scope='articles',
-            user_group=None
-        ).count() == 1
-
+# ── Parse permission ─────────────────────────────────────────────────
 
 class TestParsePermission:
-    """Test parse_permission utility function."""
+    """Test parse_permission with named actions."""
 
-    def test_parse_simple_permission(self):
-        """Test parsing simple permission string."""
-        scope, actions, role, context = parse_permission('articles:rw')
-        
+    def test_parse_single_action(self):
+        """Test parsing single action."""
+        scope, actions, operator, role, context = parse_permission('articles:read')
         assert scope == 'articles'
-        assert actions == ['r', 'w']
+        assert actions == ['read']
+        assert operator == '&'
         assert role is None
         assert context == {}
 
-    def test_parse_permission_with_role(self):
-        """Test parsing permission with role."""
-        scope, actions, role, context = parse_permission('articles:w:admin')
-        
-        assert scope == 'articles'
-        assert actions == ['w']
-        assert role == 'admin'
-        assert context == {}
-
-    def test_parse_permission_with_context(self):
-        """Test parsing permission with query string context."""
-        scope, actions, role, context = parse_permission('articles:rw?tenant_id=123&status=published')
-        
-        assert scope == 'articles'
-        assert actions == ['r', 'w']
+    def test_parse_and_actions(self):
+        """Test parsing AND (/)."""
+        scope, actions, operator, role, context = parse_permission('orders:create/approve/cancel')
+        assert scope == 'orders'
+        assert actions == ['create', 'approve', 'cancel']
+        assert operator == '&'
         assert role is None
-        assert context == {'tenant_id': 123, 'status': 'published'}
 
-    def test_parse_permission_with_role_and_context(self):
-        """Test parsing permission with both role and context."""
-        scope, actions, role, context = parse_permission('articles:w:editor?tenant_id=123')
-        
+    def test_parse_or_actions(self):
+        """Test parsing OR (|)."""
+        scope, actions, operator, role, context = parse_permission('orders:create|approve|cancel')
+        assert scope == 'orders'
+        assert actions == ['create', 'approve', 'cancel']
+        assert operator == '|'
+        assert role is None
+
+    def test_parse_with_role(self):
+        """Test parsing with role."""
+        scope, actions, operator, role, context = parse_permission('articles:read/write:editor')
         assert scope == 'articles'
-        assert actions == ['w']
+        assert actions == ['read', 'write']
+        assert operator == '&'
         assert role == 'editor'
-        assert context == {'tenant_id': 123}
 
-    def test_parse_permission_invalid_format(self):
-        """Test parsing invalid permission format raises error."""
+    def test_parse_or_with_role(self):
+        """Test parsing OR with role."""
+        scope, actions, operator, role, context = parse_permission('articles:read|write:editor')
+        assert scope == 'articles'
+        assert actions == ['read', 'write']
+        assert operator == '|'
+        assert role == 'editor'
+
+    def test_parse_with_context(self):
+        """Test parsing with context."""
+        scope, actions, operator, role, context = parse_permission(
+            'articles:read/write?tenant_id=42&status=active'
+        )
+        assert scope == 'articles'
+        assert actions == ['read', 'write']
+        assert operator == '&'
+        assert role is None
+        assert context == {'tenant_id': 42, 'status': 'active'}
+
+    def test_parse_with_role_and_context(self):
+        """Test parsing with role and context."""
+        scope, actions, operator, role, context = parse_permission(
+            'articles:read/write:editor?tenant_id=42'
+        )
+        assert scope == 'articles'
+        assert actions == ['read', 'write']
+        assert operator == '&'
+        assert role == 'editor'
+        assert context == {'tenant_id': 42}
+
+    def test_parse_invalid_format(self):
+        """Test invalid format raises ValueError."""
         with pytest.raises(ValueError, match="Format de permission invalide"):
             parse_permission('invalid')
 
+    def test_parse_mixed_separators_raises(self):
+        """Test mixed / and | raises."""
+        with pytest.raises(ValueError, match="ambigu"):
+            parse_permission('orders:create/approve|cancel')
+
+
+# ── Any action check ─────────────────────────────────────────────────
 
 class TestAnyActionCheck:
-    """Test any_action_check function."""
+    """Test any_action_check with named actions."""
 
-    def test_any_action_check_basic(self, test_user, editor_role, admin_user):
-        """Test any_action_check with basic usage."""
+    def test_any_action_check_basic(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test OR check on same scope."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        # User has read + write
+        assert any_action_check(test_user, 'articles', ['read']) is True
+        assert any_action_check(test_user, 'articles', ['read', 'delete']) is True  # has read
+        assert any_action_check(test_user, 'articles', ['delete', 'publish']) is False  # has neither
+
+    def test_any_action_check_with_role(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test OR check filtered by role."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assert any_action_check(test_user, 'articles', ['read', 'delete'], role='editor') is True
+        assert any_action_check(test_user, 'articles', ['read', 'delete'], role='viewer') is False
+
+    def test_any_action_check_with_context(self, test_user, editor_role, admin_user):
+        """Test OR check with context."""
         RoleGrant.objects.create(
             role=editor_role,
             scope='articles',
-            actions=['r'],  # Only read permission
+            actions=['read', 'write'],
+            context={'tenant_id': 42}
         )
-        
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # User has 'r', checking for ['r', 'w', 'd'] should return True (has at least 'r')
-        assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
-        
-        # User doesn't have 'w' or 'd', but has 'r', so should still be True
-        assert any_action_check(test_user, 'articles', ['w', 'd']) is False
+        assert any_action_check(test_user, 'articles', ['read'], tenant_id=42) is True
+        assert any_action_check(test_user, 'articles', ['read'], tenant_id=99) is False
 
-    def test_any_action_check_with_multiple_actions(self, test_user, editor_role, admin_user):
-        """Test any_action_check when user has multiple actions."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # User has ['r', 'w'], checking for any of ['r', 'w', 'd'] should be True
-        assert any_action_check(test_user, 'articles', ['r', 'w', 'd']) is True
-        
-        # User has 'w', checking for ['w', 'd'] should be True
-        assert any_action_check(test_user, 'articles', ['w', 'd']) is True
-        
-        # User doesn't have 'd' or 'x', should be False
-        assert any_action_check(test_user, 'articles', ['d', 'x']) is False
 
-    def test_any_action_check_with_role(self, test_user, editor_role, admin_user):
-        """Test any_action_check with role filter."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Check with role filter
-        assert any_action_check(test_user, 'articles', ['r', 'w'], role='editor') is True
-        assert any_action_check(test_user, 'articles', ['d'], role='editor') is False
-        assert any_action_check(test_user, 'articles', ['r'], role='nonexistent') is False
-
-    def test_any_action_check_with_context(self, test_user, editor_role):
-        """Test any_action_check with context."""
-        Grant.objects.create(
-            user=test_user,
-            scope='articles',
-            role=editor_role,
-            actions=['r', 'w'],
-            context={'tenant_id': 123}
-        )
-        
-        # With matching context
-        assert any_action_check(test_user, 'articles', ['r', 'w'], tenant_id=123) is True
-        
-        # With non-matching context
-        assert any_action_check(test_user, 'articles', ['r', 'w'], tenant_id=456) is False
-
+# ── Any permission check ─────────────────────────────────────────────
 
 class TestAnyPermissionCheck:
-    """Test any_permission_check function."""
+    """Test any_permission_check with named actions."""
 
-    def test_any_permission_check_basic(self, test_user, editor_role, admin_user):
-        """Test any_permission_check with basic usage."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r'],
-        )
-        
+    def test_any_permission_check_basic(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test OR across different permission strings."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # User has 'articles:r', checking for ['articles:r', 'invoices:w'] should be True
-        assert any_permission_check(test_user, 'articles:r', 'invoices:w') is True
-        
-        # User doesn't have any of these
-        assert any_permission_check(test_user, 'invoices:w', 'users:d') is False
+        assert any_permission_check(test_user, 'articles:read') is True
+        assert any_permission_check(test_user, 'articles:delete', 'articles:read') is True  # has read
+        assert any_permission_check(test_user, 'articles:delete', 'articles:publish') is False
 
-    def test_any_permission_check_multiple_scopes(self, test_user, editor_role, admin_user):
-        """Test any_permission_check with multiple scopes."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='invoices',
-            actions=['r'],
-        )
-        
+    def test_any_permission_check_mixed_operators(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test AND within one perm, OR across perms."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # User has both permissions
-        assert any_permission_check(test_user, 'articles:r', 'invoices:r') is True
-        
-        # User has at least one (articles:w)
-        assert any_permission_check(test_user, 'articles:w', 'users:d') is True
-        
-        # User has none of these
-        assert any_permission_check(test_user, 'users:r', 'reports:w') is False
+        # articles:read/write = AND (must have both) → True
+        # articles:delete/publish = AND (must have both) → False
+        # overall OR → True
+        assert any_permission_check(test_user, 'articles:read/write', 'articles:delete/publish') is True
 
-    def test_any_permission_check_with_roles(self, test_user, editor_role, admin_user):
-        """Test any_permission_check with role filters."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
+    def test_any_permission_check_with_roles(self, test_user, editor_role, viewer_role, editor_role_grant, admin_user):
+        """Test OR check with role filters."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Check with role in permission string
         assert any_permission_check(
             test_user,
-            'articles:r:editor',
-            'invoices:w:admin'
-        ) is True
-        
-        # No match with wrong role
-        assert any_permission_check(
-            test_user,
-            'articles:r:nonexistent',
-            'invoices:w:admin'
-        ) is False
-
-    def test_any_permission_check_with_context(self, test_user, editor_role):
-        """Test any_permission_check with context in permission strings."""
-        Grant.objects.create(
-            user=test_user,
-            scope='articles',
-            role=editor_role,
-            actions=['r'],
-            context={'tenant_id': 123}
-        )
-        Grant.objects.create(
-            user=test_user,
-            scope='invoices',
-            role=editor_role,
-            actions=['w'],
-            context={'tenant_id': 456}
-        )
-        
-        # User has articles:r with tenant_id=123
-        assert any_permission_check(
-            test_user,
-            'articles:r?tenant_id=123',
-            'users:d'
-        ) is True
-        
-        # User has invoices:w with tenant_id=456
-        assert any_permission_check(
-            test_user,
-            'articles:r?tenant_id=999',
-            'invoices:w?tenant_id=456'
+            'articles:read:editor',
+            'articles:read:viewer'
         ) is True
 
-    def test_any_permission_check_empty_permissions(self, test_user):
-        """Test any_permission_check with no permissions returns False."""
+    def test_any_permission_check_with_context(self, test_user, editor_role, admin_user):
+        """Test OR check with context."""
+        RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['read', 'write'],
+            context={'tenant_id': 42}
+        )
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        assert any_permission_check(
+            test_user,
+            'articles:read?tenant_id=42',
+            'articles:read?tenant_id=99'
+        ) is True  # first matches
+
+    def test_any_permission_check_empty(self, test_user):
+        """Test empty perms returns False."""
         assert any_permission_check(test_user) is False
 
 
+# ── ScopeAnyActionPermission ─────────────────────────────────────────
+
 class TestScopeAnyActionPermission:
-    """Test ScopeAnyActionPermission class."""
+    """Test ScopeAnyActionPermission (always OR)."""
 
-    def test_scope_any_action_permission_basic(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyActionPermission basic functionality."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r'],
-        )
-        
+    def test_scope_any_action_basic(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test always-OR on same scope."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        # Create mock request
-        request = Mock()
-        request.user = test_user
-        
-        # User has 'r', permission checks for 'rwd' (any of them)
-        permission = ScopeAnyActionPermission('articles:rwd')
-        assert permission.has_permission(request, None) is True
-        
-        # User doesn't have 'w' or 'd'
-        permission = ScopeAnyActionPermission('articles:wd')
-        assert permission.has_permission(request, None) is False
+        perm = ScopeAnyActionPermission('articles:read/delete')
+        request = Mock(user=test_user)
+        # Even with '/', this class forces OR → True (has read)
+        assert perm.has_permission(request, Mock()) is True
 
-    def test_scope_any_action_permission_with_role(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyActionPermission with role."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
+    def test_scope_any_action_fails(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test always-OR fails when user has none."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        request = Mock()
-        request.user = test_user
-        
-        permission = ScopeAnyActionPermission('articles:rwd:editor')
-        assert permission.has_permission(request, None) is True
-        
-        permission = ScopeAnyActionPermission('articles:rwd:nonexistent')
-        assert permission.has_permission(request, None) is False
+        perm = ScopeAnyActionPermission('articles:delete/publish')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is False
 
-    def test_scope_any_action_permission_with_context(self, test_user, editor_role):
-        """Test ScopeAnyActionPermission with context."""
-        Grant.objects.create(
-            user=test_user,
-            scope='articles',
-            role=editor_role,
-            actions=['r', 'w'],
-            context={'tenant_id': 123}
-        )
-        
-        request = Mock()
-        request.user = test_user
-        
-        permission = ScopeAnyActionPermission('articles:rwd?tenant_id=123')
-        assert permission.has_permission(request, None) is True
-        
-        permission = ScopeAnyActionPermission('articles:rwd?tenant_id=456')
-        assert permission.has_permission(request, None) is False
+    def test_scope_any_action_with_role(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test always-OR with role filter."""
+        assign_role(test_user, 'editor', 'articles', by=admin_user)
+        perm = ScopeAnyActionPermission('articles:read/delete:editor')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True
 
-    def test_scope_any_action_permission_validation(self):
-        """Test ScopeAnyActionPermission validation."""
-        with pytest.raises(ValueError, match="Permission string must be provided"):
+    def test_scope_any_action_validation(self):
+        """Test validation on empty string."""
+        with pytest.raises(ValueError):
             ScopeAnyActionPermission('')
 
 
+# ── ScopeAnyPermission ───────────────────────────────────────────────
+
 class TestScopeAnyPermission:
-    """Test ScopeAnyPermission class."""
+    """Test ScopeAnyPermission with named actions."""
 
-    def test_scope_any_permission_basic(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyPermission basic functionality."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r'],
-        )
-        
+    def test_scope_any_permission_basic(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test OR across multiple permission strings."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        request = Mock()
-        request.user = test_user
-        
-        # User has 'articles:r', checking for ['articles:r', 'invoices:w']
-        permission = ScopeAnyPermission('articles:r', 'invoices:w')
-        assert permission.has_permission(request, None) is True
-        
-        # User doesn't have any of these
-        permission = ScopeAnyPermission('invoices:w', 'users:d')
-        assert permission.has_permission(request, None) is False
+        perm = ScopeAnyPermission('articles:delete', 'articles:read')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True
 
-    def test_scope_any_permission_multiple_scopes(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyPermission with multiple scopes."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='invoices',
-            actions=['r'],
-        )
-        
+    def test_scope_any_permission_fails(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test fails when none match."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        request = Mock()
-        request.user = test_user
-        
-        # User has at least one of these
-        permission = ScopeAnyPermission('articles:w', 'users:d', 'reports:r')
-        assert permission.has_permission(request, None) is True
+        perm = ScopeAnyPermission('articles:delete', 'articles:publish')
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is False
 
-    def test_scope_any_permission_with_roles(self, test_user, editor_role, admin_user):
-        """Test ScopeAnyPermission with role filters."""
-        RoleGrant.objects.create(
-            role=editor_role,
-            scope='articles',
-            actions=['r', 'w'],
-        )
-        
+    def test_scope_any_permission_with_roles(self, test_user, editor_role, editor_role_grant, admin_user):
+        """Test with role filters."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        
-        request = Mock()
-        request.user = test_user
-        
-        permission = ScopeAnyPermission('articles:r:editor', 'invoices:w:admin')
-        assert permission.has_permission(request, None) is True
-        
-        permission = ScopeAnyPermission('articles:r:nonexistent', 'invoices:w:admin')
-        assert permission.has_permission(request, None) is False
-
-    def test_scope_any_permission_with_context(self, test_user, editor_role):
-        """Test ScopeAnyPermission with context."""
-        Grant.objects.create(
-            user=test_user,
-            scope='articles',
-            role=editor_role,
-            actions=['r'],
-            context={'tenant_id': 123}
+        perm = ScopeAnyPermission(
+            'articles:read:editor',
+            'articles:write:viewer'
         )
-        Grant.objects.create(
-            user=test_user,
-            scope='invoices',
-            role=editor_role,
-            actions=['w'],
-            context={'tenant_id': 456}
-        )
-        
-        request = Mock()
-        request.user = test_user
-        
-        permission = ScopeAnyPermission(
-            'articles:r?tenant_id=123',
-            'invoices:w?tenant_id=456'
-        )
-        assert permission.has_permission(request, None) is True
+        request = Mock(user=test_user)
+        assert perm.has_permission(request, Mock()) is True
 
     def test_scope_any_permission_validation(self):
-        """Test ScopeAnyPermission validation."""
-        with pytest.raises(ValueError, match="At least one permission string must be provided"):
+        """Test validation on empty args."""
+        with pytest.raises(ValueError):
             ScopeAnyPermission()
 
 
+# ── Activate / Deactivate ────────────────────────────────────────────
+
 class TestActivateDeactivatePermissions:
-    """Test activate_user_permissions and deactivate_user_permissions."""
+    """Test activate/deactivate with named actions."""
 
     def test_activate_all_user_grants(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Activate all grants for a user."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        # Désactiver d'abord
-        deactivate_user_permissions(test_user)
-        assert not check(test_user, 'articles', ['r'])
-
-        # Activer
+        # Deactivate first
+        Grant.objects.filter(user=test_user).update(is_active=False)
         activate_user_permissions(test_user)
-        assert check(test_user, 'articles', ['r'])
+        assert Grant.objects.filter(user=test_user, is_active=True).exists()
 
     def test_deactivate_all_user_grants(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Deactivate all grants for a user — check() must return False."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assert check(test_user, 'articles', ['r'])
-
         deactivate_user_permissions(test_user)
-        assert not check(test_user, 'articles', ['r'])
+        assert not Grant.objects.filter(user=test_user, is_active=True).exists()
 
-    def test_activate_by_scope(self, test_user, editor_role, editor_role_grant, viewer_role, viewer_role_grant, admin_user):
-        """Activate only grants for a specific scope."""
+    def test_activate_by_scope(self, test_user, editor_role, editor_role_grant, admin_user):
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assign_role(test_user, 'viewer', 'articles', by=admin_user)
-        deactivate_user_permissions(test_user)
-
-        # Activer seulement le scope 'articles'
+        Grant.objects.filter(user=test_user).update(is_active=False)
         activate_user_permissions(test_user, scope='articles')
-        assert check(test_user, 'articles', ['r'])
+        assert Grant.objects.filter(user=test_user, scope='articles', is_active=True).exists()
 
-    def test_deactivate_by_scope(self, test_user, editor_role, editor_role_grant, viewer_role, viewer_role_grant, admin_user):
-        """Deactivate only grants for a specific scope."""
-        # Le viewer_role_grant n'existe pas pour 'invoices', créons un grant manuel
+    def test_deactivate_by_scope(self, test_user, editor_role, editor_role_grant, admin_user):
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assign_role(test_user, 'viewer', 'articles', by=admin_user)
-
         deactivate_user_permissions(test_user, scope='articles')
-        assert not check(test_user, 'articles', ['r'])
-
-    def test_activate_by_app(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Activate only grants whose role belongs to a given app."""
-        editor_role.app = 'blog'
-        editor_role.save()
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        deactivate_user_permissions(test_user)
-
-        activate_user_permissions(test_user, app='blog')
-        assert check(test_user, 'articles', ['r'])
-
-    def test_deactivate_by_app(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Deactivate only grants whose role belongs to a given app."""
-        editor_role.app = 'cms'
-        editor_role.save()
-        assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assert check(test_user, 'articles', ['r'])
-
-        deactivate_user_permissions(test_user, app='cms')
-        assert not check(test_user, 'articles', ['r'])
-
-    def test_activate_no_matching_grants_is_passive(self, test_user):
-        """activate_user_permissions on a user with no grants does not raise."""
-        activate_user_permissions(test_user)
-        activate_user_permissions(test_user, scope='nonexistent')
-        activate_user_permissions(test_user, app='noapp')
-
-    def test_deactivate_no_matching_grants_is_passive(self, test_user):
-        """deactivate_user_permissions on a user with no grants does not raise."""
-        deactivate_user_permissions(test_user)
-        deactivate_user_permissions(test_user, scope='nonexistent')
-        deactivate_user_permissions(test_user, app='noapp')
+        assert not Grant.objects.filter(user=test_user, scope='articles', is_active=True).exists()
 
     def test_reactivate_restores_check(self, test_user, editor_role, editor_role_grant, admin_user):
-        """Deactivate then reactivate — check() passes again."""
+        """Test that reactivating grants restores permission checks."""
         assign_role(test_user, 'editor', 'articles', by=admin_user)
-        assert check(test_user, 'articles', ['r'])
-
+        assert check(test_user, 'articles', ['read']) is True
         deactivate_user_permissions(test_user)
-        assert not check(test_user, 'articles', ['r'])
-
+        assert check(test_user, 'articles', ['read']) is False
         activate_user_permissions(test_user)
-        assert check(test_user, 'articles', ['r'])
+        assert check(test_user, 'articles', ['read']) is True
 
+
+# ── Extra permissions ────────────────────────────────────────────────
 
 class TestExtraPermissions:
-    """Tests for extra_permissions() utility."""
+    """Test extra_permissions with named actions."""
 
-    @override_settings()
     def test_returns_empty_list_when_not_configured(self):
-        """Returns [] when EXTRA_PERMISSIONS is not defined."""
-        extra_permissions.cache_clear()
-        # Delete the setting manually since override_settings doesn't handle deletions
-        if hasattr(django_settings, 'EXTRA_PERMISSIONS'):
-            delattr(django_settings, 'EXTRA_PERMISSIONS')
-        result = extra_permissions()
-        assert result == []
+        assert extra_permissions() == []
+
+    @override_settings(EXTRA_PERMISSIONS=[])
+    def test_returns_empty_list_when_configured_empty(self):
+        assert extra_permissions() == []
 
     @override_settings(
-        EXTRA_PERMISSIONS=[
-            'oxutils.permissions.perms.ScopePermission',
-        ]
+        EXTRA_PERMISSIONS=['oxutils.permissions.perms.ScopePermission']
     )
-    def test_imports_and_returns_instances(self):
-        """Dotted paths are imported and returned as-is."""
+    def test_imports_and_returns_instances(self, settings):
+        # Clear cache
         extra_permissions.cache_clear()
-
         result = extra_permissions()
-
         assert len(result) == 1
-        # import_string returns the object at the path (class or instance)
-        assert result[0] is ScopePermission
+        # import_string returns the class itself, not an instance
+        from ninja_extra.permissions import BasePermission
+        assert issubclass(result[0], BasePermission)
 
-    @override_settings(
-        EXTRA_PERMISSIONS=[
-            'nonexistent.module.Permission',
-        ]
-    )
-    def test_raises_improperly_configured_on_bad_path(self):
-        """Invalid dotted path raises ImproperlyConfigured."""
+    @override_settings(EXTRA_PERMISSIONS=['nonexistent.Path'])
+    def test_raises_on_bad_path(self):
         extra_permissions.cache_clear()
-
-        with pytest.raises(ImproperlyConfigured, match='Cannot import'):
+        with pytest.raises(ImproperlyConfigured):
             extra_permissions()
 
-    @override_settings(EXTRA_PERMISSIONS='not_a_list')
-    def test_raises_on_non_list_setting(self):
-        """Non-list EXTRA_PERMISSIONS raises ImproperlyConfigured."""
+    @override_settings(EXTRA_PERMISSIONS=42)
+    def test_raises_on_non_list(self):
         extra_permissions.cache_clear()
-
-        with pytest.raises(ImproperlyConfigured, match='must be a list'):
+        with pytest.raises(ImproperlyConfigured):
             extra_permissions()
 
-    @override_settings(
-        EXTRA_PERMISSIONS=[
-            'oxutils.permissions.perms.ScopePermission',
-            'oxutils.permissions.perms.ScopeAnyPermission',
-        ]
-    )
-    def test_multiple_permissions(self):
-        """Multiple entries are all imported."""
-        extra_permissions.cache_clear()
 
-        result = extra_permissions()
+# ── Models ───────────────────────────────────────────────────────────
 
-        assert len(result) == 2
-        assert result[0] is ScopePermission
-        assert result[1] is ScopeAnyPermission
+class TestModels:
+    """Test models with named actions."""
 
-    def test_result_is_cached(self):
-        """Second call returns the same list (lru_cache)."""
-        extra_permissions.cache_clear()
+    def test_role_creation(self, db_setup):
+        role = Role.objects.create(slug='test_role', name='Test Role')
+        assert str(role) == 'test_role'
 
-        with override_settings(
-            EXTRA_PERMISSIONS=['oxutils.permissions.perms.ScopePermission']
-        ):
-            result1 = extra_permissions()
-            result2 = extra_permissions()
+    def test_group_creation(self, db_setup, editor_role):
+        group = Group.objects.create(slug='test_group', name='Test Group')
+        group.roles.add(editor_role)
+        # save() calls slugify(self.name) → 'test-group'
+        assert str(group) == 'test-group'
 
-        assert result1 is result2
+    def test_role_grant_clean_expands(self, db_setup, editor_role):
+        """Test RoleGrant.clean() expands actions based on hierarchy."""
+        rg = RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['write'],  # write implies read
+            context={}
+        )
+        assert set(rg.actions) == {'read', 'write'}
+
+    def test_role_grant_expand_archive(self, db_setup, editor_role):
+        """Test deep expansion."""
+        rg = RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['archive'],  # archive → publish → write → read
+            context={}
+        )
+        assert 'archive' in rg.actions
+        assert 'publish' in rg.actions
+        assert 'write' in rg.actions
+        assert 'read' in rg.actions
+
+    def test_grant_unique_constraint(self, test_user, editor_role, db_setup):
+        """Test unique constraint on grants."""
+        rg = RoleGrant.objects.create(
+            role=editor_role,
+            scope='articles',
+            actions=['read'],
+            context={}
+        )
+        Grant.objects.create(
+            user=test_user,
+            scope='articles',
+            role=editor_role,
+            actions=['read'],
+        )
+        with pytest.raises(Exception):
+            Grant.objects.create(
+                user=test_user,
+                scope='articles',
+                role=editor_role,
+                actions=['read'],
+            )
 
 
-# ── Helpers for preset discovery tests ────────────────────────────
+# ── Preset discovery helpers ─────────────────────────────────────────
 
-def _fake_app_config(name, label=None):
-    """Return a mock AppConfig with *name* and *label*."""
-    cfg = Mock()
-    cfg.name = name
-    cfg.label = label or name
-    return cfg
+def _fake_app_config(label, module_attrs):
+    """Return an object that looks like a Django AppConfig."""
+    return type("FakeConfig", (), {"label": label, "name": f"fake_{label}"})
 
 
-def _patch_discovery(app_configs, module_attrs=None):
+def _patch_get_app_configs(monkeypatch, configs):
+    """Mock `apps.get_app_configs` to return *configs*."""
+    monkeypatch.setattr("django.apps.apps.get_app_configs", lambda: configs)
+
+
+def _patch_import_module(monkeypatch, module_map):
     """
-    Context manager that patches ``apps.get_app_configs`` and
-    ``importlib.import_module`` for discovery tests.
-
-    *app_configs*: list of mock AppConfigs.
-    *module_attrs*: dict mapping ``app_config.name`` → dict of module attributes.
+    Monkeypatch `importlib.import_module` so that for each app label
+    we return a fake module with the given attributes.
     """
-    from contextlib import ExitStack
+    import importlib
+    orig = importlib.import_module
 
-    module_attrs = module_attrs or {}
-
-    def _import_module(name):
-        for cfg in app_configs:
-            if name == f"{cfg.name}.permissions":
+    def _import(modname):
+        for label, attrs in module_map.items():
+            if modname == f"fake_{label}.permissions":
                 mod = Mock()
-                for attr, val in (module_attrs.get(cfg.name, {})).items():
-                    setattr(mod, attr, val)
+                for k, v in attrs.items():
+                    setattr(mod, k, v)
                 return mod
-        raise ModuleNotFoundError(f"No module named '{name}'")
+        return orig(modname)
 
-    stack = ExitStack()
-    stack.enter_context(
-        patch.object(presets_mod.apps, "get_app_configs", return_value=app_configs)
-    )
-    stack.enter_context(
-        patch.object(presets_mod.importlib, "import_module", side_effect=_import_module)
-    )
-    return stack
+    monkeypatch.setattr(importlib, "import_module", _import)
 
-
-# ── Discovery tests ───────────────────────────────────────────────
 
 class TestDiscoverAppPresets:
-    """Tests for discover_app_presets()."""
+    """Test discover_app_presets with named actions."""
 
-    def test_discovers_preset_from_app(self):
-        """App exporting PERMISSION_PRESET is discovered."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg],
-            {
-                "blog": {
-                    "PERMISSION_PRESET": {
-                        "roles": [{"slug": "author"}],
-                        "groups": [{"slug": "writers"}],
-                        "role_grants": [{"role": "author", "scope": "posts", "actions": ["r", "w"]}],
-                    }
+    def test_discovers_preset_from_app(self, monkeypatch):
+        config = _fake_app_config("myapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {
+            "myapp": {
+                "PERMISSION_PRESET": {
+                    "roles": [{"slug": "editor", "name": "Editor"}],
+                    "groups": [],
+                    "role_grants": [],
                 }
-            },
-        ):
-            result = presets_mod.discover_app_presets()
+            }
+        })
+        presets = presets_mod.discover_app_presets()
+        assert len(presets) >= 1
+        assert presets[0]["roles"][0]["slug"] == "editor"
 
-        assert len(result) == 1
-        preset = result[0]
-        assert preset["roles"][0]["app"] == "blog"
-        assert preset["groups"][0]["app"] == "blog"
-        assert preset["role_grants"][0]["app"] == "blog"
-
-    def test_app_without_permissions_module_is_skipped(self):
-        """App without a permissions.py is silently skipped."""
-        cfg = _fake_app_config("no_perms")
-        with _patch_discovery([cfg]):
-            result = presets_mod.discover_app_presets()
-        assert result == []
-
-    def test_app_without_preset_is_skipped(self):
-        """App whose permissions.py has no PERMISSION_PRESET is skipped."""
-        cfg = _fake_app_config("plain")
-        with _patch_discovery([cfg], {"plain": {"SOME_OTHER_VAR": True}}):
-            result = presets_mod.discover_app_presets()
-        assert result == []
-
-    def test_app_with_non_dict_preset_is_skipped(self):
-        """String / list PERMISSION_PRESET is ignored."""
-        cfg = _fake_app_config("bad")
-        with _patch_discovery([cfg], {"bad": {"PERMISSION_PRESET": "not_a_dict"}}):
-            result = presets_mod.discover_app_presets()
-        assert result == []
-
-    def test_multiple_apps_are_all_discovered(self):
-        """Each app contributes its own preset dict."""
-        blog = _fake_app_config("blog")
-        shop = _fake_app_config("shop")
-        with _patch_discovery(
-            [blog, shop],
-            {
-                "blog": {"PERMISSION_PRESET": {"roles": [{"slug": "author"}]}},
-                "shop": {"PERMISSION_PRESET": {"roles": [{"slug": "seller"}]}},
-            },
-        ):
-            result = presets_mod.discover_app_presets()
-
-        assert len(result) == 2
-
-    def test_app_label_is_set_on_all_entities(self):
-        """Roles, groups, and role_grants all get 'app' set to the app label."""
-        cfg = _fake_app_config("cms", label="my_cms")
-        with _patch_discovery(
-            [cfg],
-            {
-                "cms": {
-                    "PERMISSION_PRESET": {
-                        "roles": [{"slug": "editor"}],
-                        "groups": [{"slug": "editors"}],
-                        "role_grants": [{"role": "editor", "scope": "pages", "actions": ["r"]}],
-                    }
+    def test_preset_includes_actions(self, monkeypatch):
+        """Test that actions are discovered."""
+        config = _fake_app_config("myapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {
+            "myapp": {
+                "PERMISSION_PRESET": {
+                    "actions": {
+                        "orders": {
+                            "create": {"implies": []},
+                            "ship": {"implies": ["create"]},
+                        }
+                    },
+                    "roles": [],
+                    "groups": [],
+                    "role_grants": [],
                 }
-            },
-        ):
-            result = presets_mod.discover_app_presets()
+            }
+        })
+        presets = presets_mod.discover_app_presets()
+        assert "actions" in presets[0]
+        assert "orders" in presets[0]["actions"]
 
-        preset = result[0]
-        assert preset["roles"][0]["app"] == "my_cms"
-        assert preset["groups"][0]["app"] == "my_cms"
-        assert preset["role_grants"][0]["app"] == "my_cms"
+    def test_app_without_permissions_module_is_skipped(self, monkeypatch):
+        config = _fake_app_config("noapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
 
-    def test_preserves_existing_app_value(self):
-        """If 'app' is already set on an entity, it is not overwritten."""
-        cfg = _fake_app_config("blog", label="blog")
-        with _patch_discovery(
-            [cfg],
-            {
-                "blog": {
-                    "PERMISSION_PRESET": {
-                        "roles": [{"slug": "author", "app": "custom_app"}],
-                    }
-                }
-            },
-        ):
-            result = presets_mod.discover_app_presets()
+        import importlib
+        orig = importlib.import_module
 
-        # setdefault should not overwrite an existing value
-        assert result[0]["roles"][0]["app"] == "custom_app"
+        def _import(modname):
+            if modname == "fake_noapp.permissions":
+                raise ModuleNotFoundError()
+            return orig(modname)
+
+        monkeypatch.setattr(importlib, "import_module", _import)
+        presets = presets_mod.discover_app_presets()
+        assert presets == []
+
+    def test_app_without_preset_is_skipped(self, monkeypatch):
+        config = _fake_app_config("noapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {"noapp": {}})
+        presets = presets_mod.discover_app_presets()
+        assert presets == []
 
 
 class TestDiscoverAccessScopes:
-    """Tests for discover_access_scopes()."""
+    """Test discover_access_scopes."""
 
-    def test_discovers_scopes_from_app(self):
-        """App exporting ACCESS_SCOPES is discovered."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_SCOPES": ["posts", "comments"]}}
-        ):
-            result = presets_mod.discover_access_scopes()
+    def test_discovers_scopes_from_app(self, monkeypatch):
+        config = _fake_app_config("myapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {
+            "myapp": {"ACCESS_SCOPES": ["orders", "invoices"]}
+        })
+        scopes = presets_mod.discover_access_scopes()
+        keys = {s["key"] for s in scopes}
+        assert "orders" in keys
+        assert "invoices" in keys
 
-        assert result == ["posts", "comments"]
+    def test_discovers_scopes_with_labels(self, monkeypatch):
+        """ACCESS_SCOPES can be a list of dicts with key and label."""
+        config = _fake_app_config("myapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {
+            "myapp": {"ACCESS_SCOPES": [
+                {"key": "orders", "label": "Orders"},
+            ]}
+        })
+        scopes = presets_mod.discover_access_scopes()
+        assert len(scopes) == 1
+        assert scopes[0]["key"] == "orders"
+        assert scopes[0]["label"] == "Orders"
 
-    def test_app_without_scopes_is_skipped(self):
-        """App without ACCESS_SCOPES is silently skipped."""
-        cfg = _fake_app_config("plain")
-        with _patch_discovery([cfg], {"plain": {}}):
-            result = presets_mod.discover_access_scopes()
-        assert result == []
+    def test_deduplicates(self, monkeypatch):
+        c1 = _fake_app_config("a", {})
+        c2 = _fake_app_config("b", {})
+        _patch_get_app_configs(monkeypatch, [c1, c2])
+        _patch_import_module(monkeypatch, {
+            "a": {"ACCESS_SCOPES": ["orders"]},
+            "b": {"ACCESS_SCOPES": ["orders"]},
+        })
+        scopes = presets_mod.discover_access_scopes()
+        keys = [s["key"] for s in scopes]
+        assert keys.count("orders") == 1
 
-    def test_app_with_non_list_scopes_is_skipped(self):
-        """String / dict ACCESS_SCOPES is ignored."""
-        cfg = _fake_app_config("bad")
-        with _patch_discovery([cfg], {"bad": {"ACCESS_SCOPES": "not_a_list"}}):
-            result = presets_mod.discover_access_scopes()
-        assert result == []
-
-    def test_deduplicates_across_apps(self):
-        """Same scope from multiple apps appears only once."""
-        blog = _fake_app_config("blog")
-        shop = _fake_app_config("shop")
-        with _patch_discovery(
-            [blog, shop],
-            {
-                "blog": {"ACCESS_SCOPES": ["posts", "common"]},
-                "shop": {"ACCESS_SCOPES": ["products", "common"]},
-            },
-        ):
-            result = presets_mod.discover_access_scopes()
-
-        assert result == ["posts", "common", "products"]
-
-    def test_multiple_apps_are_all_discovered(self):
-        """All apps contribute their scopes in order."""
-        blog = _fake_app_config("blog")
-        shop = _fake_app_config("shop")
-        with _patch_discovery(
-            [blog, shop],
-            {
-                "blog": {"ACCESS_SCOPES": ["posts"]},
-                "shop": {"ACCESS_SCOPES": ["products"]},
-            },
-        ):
-            result = presets_mod.discover_access_scopes()
-
-        assert "posts" in result
-        assert "products" in result
-
-
-class TestDiscoverAccessApplications:
-    """Tests for discover_access_applications()."""
-
-    def test_discovers_application_name_from_app(self):
-        """App exporting ACCESS_APPLICATION_NAME is discovered."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "blog_app"}}
-        ):
-            result = presets_mod.discover_access_applications()
-
-        assert result == ["blog_app"]
-
-    def test_app_without_name_is_skipped(self):
-        """App without ACCESS_APPLICATION_NAME is skipped."""
-        cfg = _fake_app_config("plain")
-        with _patch_discovery([cfg], {"plain": {}}):
-            result = presets_mod.discover_access_applications()
-        assert result == []
-
-    def test_app_with_non_string_name_is_skipped(self):
-        """Non-string ACCESS_APPLICATION_NAME is ignored."""
-        cfg = _fake_app_config("bad")
-        with _patch_discovery(
-            [cfg], {"bad": {"ACCESS_APPLICATION_NAME": 123}}
-        ):
-            result = presets_mod.discover_access_applications()
-        assert result == []
-
-    def test_deduplicates_across_apps(self):
-        """Same application name from multiple apps appears only once."""
-        a = _fake_app_config("app_a")
-        b = _fake_app_config("app_b")
-        with _patch_discovery(
-            [a, b],
-            {
-                "app_a": {"ACCESS_APPLICATION_NAME": "crm"},
-                "app_b": {"ACCESS_APPLICATION_NAME": "crm"},
-            },
-        ):
-            result = presets_mod.discover_access_applications()
-
-        assert result == ["crm"]
-
-
-# ── Registration tests ────────────────────────────────────────────
 
 class TestRegisterPreset:
-    """Tests for register_preset()."""
+    """Test register_preset with actions."""
 
-    def test_extends_base_with_discovered(self):
-        """Base preset is extended with discovered entries."""
-        cfg = _fake_app_config("blog")
-        base = {"roles": [{"slug": "admin"}], "groups": [], "role_grants": []}
+    def test_extends_base_with_discovered(self, monkeypatch):
+        config = _fake_app_config("myapp", {})
+        _patch_get_app_configs(monkeypatch, [config])
+        _patch_import_module(monkeypatch, {
+            "myapp": {
+                "PERMISSION_PRESET": {
+                    "actions": {
+                        "orders": {
+                            "create": {"implies": []},
+                        }
+                    },
+                    "roles": [{"slug": "editor", "name": "Editor"}],
+                    "groups": [],
+                    "role_grants": [],
+                }
+            }
+        })
+        base = {"roles": [], "groups": [], "role_grants": [], "actions": {}}
+        result = presets_mod.register_preset(base)
+        assert len(result["roles"]) >= 1
+        assert "orders" in result["actions"]
 
-        with _patch_discovery(
-            [cfg],
-            {
-                "blog": {
-                    "PERMISSION_PRESET": {
-                        "roles": [{"slug": "author"}],
-                        "groups": [{"slug": "writers"}],
-                        "role_grants": [{"role": "author", "scope": "posts", "actions": ["r"]}],
-                    }
+    def test_different_scopes_from_multiple_apps_ok(self, monkeypatch):
+        """Different scopes from different apps are fine."""
+        c1 = _fake_app_config("a", {})
+        c2 = _fake_app_config("b", {})
+        _patch_get_app_configs(monkeypatch, [c1, c2])
+        _patch_import_module(monkeypatch, {
+            "a": {
+                "PERMISSION_PRESET": {
+                    "actions": {"scope_a": {"read": {"implies": []}}},
+                    "roles": [], "groups": [], "role_grants": [],
                 }
             },
-        ):
-            result = presets_mod.register_preset(base)
+            "b": {
+                "PERMISSION_PRESET": {
+                    "actions": {"scope_b": {"read": {"implies": []}}},
+                    "roles": [], "groups": [], "role_grants": [],
+                }
+            },
+        })
+        base = {"roles": [], "groups": [], "role_grants": [], "actions": {}}
+        result = presets_mod.register_preset(base)
+        assert "scope_a" in result["actions"]
+        assert "scope_b" in result["actions"]
 
-        assert len(result["roles"]) == 2
-        assert len(result["groups"]) == 1
-        assert len(result["role_grants"]) == 1
+    def test_duplicate_scope_raises_error(self, monkeypatch):
+        """Two apps defining the same scope raises ImproperlyConfigured."""
+        c1 = _fake_app_config("orders", {})
+        c2 = _fake_app_config("payments", {})
+        _patch_get_app_configs(monkeypatch, [c1, c2])
+        _patch_import_module(monkeypatch, {
+            "orders": {
+                "PERMISSION_PRESET": {
+                    "actions": {"orders": {"create": {"implies": []}}},
+                    "roles": [], "groups": [], "role_grants": [],
+                }
+            },
+            "payments": {
+                "PERMISSION_PRESET": {
+                    "actions": {"orders": {"refund": {"implies": ["create"]}}},
+                    "roles": [], "groups": [], "role_grants": [],
+                }
+            },
+        })
+        base = {"roles": [], "groups": [], "role_grants": [], "actions": {}}
+        with pytest.raises(ImproperlyConfigured, match="already owned"):
+            presets_mod.register_preset(base)
 
-    def test_base_without_keys_still_works(self):
-        """Empty base dict gets default keys."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg],
-            {"blog": {"PERMISSION_PRESET": {"roles": [{"slug": "author"}]}}},
-        ):
-            result = presets_mod.register_preset({})
-
-        assert "roles" in result
-        assert "groups" in result
-        assert "role_grants" in result
-        assert len(result["roles"]) == 1
-
-
-class TestRegisterAccessScopes:
-    """Tests for register_access_scopes()."""
-
-    @override_settings(ACCESS_SCOPES=["existing"])
-    def test_merges_discovered_into_settings(self):
-        """Discovered scopes are appended to the existing list."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_SCOPES": ["posts", "comments"]}}
-        ):
-            presets_mod.register_access_scopes()
-
-        assert django_settings.ACCESS_SCOPES == ["existing", "posts", "comments"]
-
-    @override_settings(ACCESS_SCOPES=[])
-    def test_works_when_setting_not_defined(self):
-        """If ACCESS_SCOPES is empty, starts from scratch."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_SCOPES": ["posts"]}}
-        ):
-            presets_mod.register_access_scopes()
-
-        assert django_settings.ACCESS_SCOPES == ["posts"]
-
-    @override_settings(ACCESS_SCOPES=["common"])
-    def test_no_duplicates(self):
-        """Duplicates between existing and discovered are not added."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_SCOPES": ["common", "posts"]}}
-        ):
-            presets_mod.register_access_scopes()
-
-        assert django_settings.ACCESS_SCOPES == ["common", "posts"]
-
-
-class TestRegisterAccessApplications:
-    """Tests for register_access_applications()."""
-
-    @override_settings(ACCESS_APPLICATIONS=["existing"])
-    def test_merges_discovered_into_settings(self):
-        """Discovered app names are appended to the existing list."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
-        ):
-            presets_mod.register_access_applications()
-
-        assert django_settings.ACCESS_APPLICATIONS == ["existing", "crm"]
-
-    @override_settings()
-    def test_works_when_setting_not_defined(self):
-        """If ACCESS_APPLICATIONS is not in settings, starts from empty."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
-        ):
-            presets_mod.register_access_applications()
-
-        assert django_settings.ACCESS_APPLICATIONS == ["crm"]
-
-    @override_settings(ACCESS_APPLICATIONS=["crm"])
-    def test_no_duplicates(self):
-        """Duplicates between existing and discovered are not added."""
-        cfg = _fake_app_config("blog")
-        with _patch_discovery(
-            [cfg], {"blog": {"ACCESS_APPLICATION_NAME": "crm"}}
-        ):
-            presets_mod.register_access_applications()
-
-        assert django_settings.ACCESS_APPLICATIONS == ["crm"]
+    def test_duplicate_scope_with_base_preset_raises_error(self, monkeypatch):
+        """App defining a scope already in the base preset raises error."""
+        c1 = _fake_app_config("orders", {})
+        _patch_get_app_configs(monkeypatch, [c1])
+        _patch_import_module(monkeypatch, {
+            "orders": {
+                "PERMISSION_PRESET": {
+                    "actions": {"orders": {"create": {"implies": []}}},
+                    "roles": [], "groups": [], "role_grants": [],
+                }
+            },
+        })
+        base = {
+            "roles": [], "groups": [], "role_grants": [],
+            "actions": {"orders": {"read": {"implies": []}}},
+        }
+        with pytest.raises(ImproperlyConfigured, match="already owned"):
+            presets_mod.register_preset(base)

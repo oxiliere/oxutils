@@ -6,7 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![Django 5.0+](https://img.shields.io/badge/django-5.0+-green.svg)](https://www.djangoproject.com/)
 [![Tests](https://img.shields.io/badge/tests-201%20passed-success.svg)](tests/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-LGPL%203.0-blue.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 ## Features
@@ -21,6 +21,7 @@
 - 💱 **Currency Module** - Multi-source exchange rates (BCC/OXR)
 - 📄 **PDF Generation** - WeasyPrint integration for Django
 - 🏢 **Multi-Tenant** - PostgreSQL schema-based isolation
+- 🔑 **Permissions** — Domain-oriented RBAC with named actions, AND/OR logic, groups & grants, translatable labels
 
 ---
 
@@ -108,6 +109,7 @@ TEMPLATES = [{
 - **[Currency](docs/currency.md)** - Exchange rates management
 - **[PDF](docs/pdf.md)** - PDF generation with WeasyPrint
 - **[Oxiliere](docs/oxiliere.md)** - Multi-tenant architecture
+- **[Permissions](docs/permissions.md)** - RBAC with named actions
 
 ## Requirements
 
@@ -218,23 +220,74 @@ class InvoicePDFView(WeasyTemplateView):
     pdf_stylesheets = ['css/invoice.css']
 ```
 
-### Multi-Tenant Setup
+# Multi-Tenant Setup
 
 ```python
 # settings.py
 TENANT_MODEL = "oxiliere.Tenant"
 MIDDLEWARE = [
-    'oxutils.oxiliere.middleware.TenantMainMiddleware',  # First!
-    # other middleware...
+    'oxutils.oxiliere.middleware.TenantMainMiddleware',
+    # ...
+]
+```
+
+### Permissions (v0.5.0)
+
+```python
+# settings.py — define named actions & scopes with translatable labels
+from django.utils.translation import gettext_lazy as _
+
+PERMISSION_PRESET = {
+    "actions": {
+        "orders": {
+            "create":  {"implies": [],          "label": _("Create")},
+            "approve": {"implies": ["create"],  "label": _("Approve")},
+            "cancel":  {"implies": [],          "label": _("Cancel")},
+        },
+        "articles": {
+            "read":    {"implies": [],          "label": _("Read")},
+            "write":   {"implies": ["read"],    "label": _("Write")},
+            "publish": {"implies": ["write"],   "label": _("Publish")},
+        },
+    },
+    "roles": [{"name": "Editor", "slug": "editor"}],
+    "groups": [],
+    "role_grants": [
+        {"role": "editor", "scope": "articles", "actions": ["write"], "context": {}},
+    ],
+}
+
+# Scopes — strings or dicts with labels (recommended for frontend i18n)
+ACCESS_SCOPES = [
+    "articles",
+    {"key": "orders", "label": _("Orders")},
 ]
 
-# All requests must include X-Organization-ID header
-# Data is automatically isolated per tenant schema
+# Controller — AND (/) and OR (|) operators
+from oxutils.permissions.perms import ScopePermission
+
+@api_controller('/orders', permissions=[ScopePermission('orders:create/approve')])
+class OrderController:  # user needs create AND approve
+    ...
+
+# Frontend endpoint — translated action labels
+# GET /api/access/scopes/orders/actions
+# → {"scope": "orders", "actions": [
+#     {"key": "create",  "label": "Créer"},
+#     {"key": "approve", "label": "Approuver"},
+#   ]}
+
+# Frontend endpoint — translated scope labels
+# GET /api/access/scopes
+# → [
+#     {"key": "articles", "label": "Articles"},
+#     {"key": "orders",   "label": "Commandes"},
+#   ]
 ```
 
 ## License
 
-Apache 2.0 License - see [LICENSE](LICENSE)
+LGPL 3.0 License - see [LICENSE](LICENSE)
 
 ## Support
 

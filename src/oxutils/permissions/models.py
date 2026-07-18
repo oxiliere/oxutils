@@ -81,11 +81,11 @@ class RoleGrant(models.Model):
 
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="grants")
     scope = models.CharField(max_length=100)
-    actions = ArrayField(models.CharField(max_length=5))
+    actions = ArrayField(models.CharField(max_length=50))
     context = models.JSONField(default=dict, blank=True)
 
     def clean(self):
-        self.actions = expand_actions(self.actions)
+        self.actions = expand_actions(self.scope, self.actions)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["role", "scope"], name="unique_role_scope")]
@@ -146,7 +146,7 @@ class Grant(TimestampMixin):
     )
 
     scope = models.CharField(max_length=100)
-    actions = ArrayField(models.CharField(max_length=5))
+    actions = ArrayField(models.CharField(max_length=50))
     context = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
 
