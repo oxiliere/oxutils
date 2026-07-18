@@ -1,22 +1,21 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# OxUtils Permissions — French translations.
+# Copyright (C) 2026 Oxiliere
+# This file is distributed under the LGPL-3.0 license.
 #
-#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-16 23:11+0200\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
+"Project-Id-Version: oxutils 0.5.0\n"
+"Report-Msgid-Bugs-To: dev@oxiliere.com\n"
+"POT-Creation-Date: 2026-07-18 00:00+0000\n"
+"PO-Revision-Date: 2026-07-18 00:00+0000\n"
+"Last-Translator: Oxiliere Team <dev@oxiliere.com>\n"
+"Language-Team: French\n"
+"Language: fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
 #: exceptions.py:14
 msgid "The requested role does not exist"
 msgstr "Le rôle demandé n'existe pas"
@@ -60,3 +59,20 @@ msgstr "Un grant existe déjà pour cet utilisateur et ce scope"
 #: services.py:310 services.py:314
 msgid "Application is not allowed"
 msgstr "L'application n'est pas autorisée"
+
+#: permissions.py (access scope actions)
+msgid "Read"
+msgstr "Lire"
+
+msgid "Write"
+msgstr "Écrire"
+
+msgid "Update"
+msgstr "Modifier"
+
+msgid "Delete"
+msgstr "Supprimer"
+
+#: permissions.py (scope labels)
+msgid "Access Management"
+msgstr "Gestion des accès"

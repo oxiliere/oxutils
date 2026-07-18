@@ -1,38 +1,58 @@
 from typing import List, Optional
 from uuid import UUID
+
 from django.conf import settings
 from django.http import HttpRequest
 from ninja_extra import (
-    api_controller,
     ControllerBase,
+    api_controller,
+    http_delete,
     http_get,
     http_post,
     http_put,
-    http_delete,
 )
 from ninja_extra.permissions import IsAuthenticated
+
 from . import schemas
-from .services import PermissionService
+from .actions import get_scope_actions_labels
 from .perms import access_manager
+from .services import PermissionService
 
 
-
-
-@api_controller(
-    "/access",
-    permissions=[
-        IsAuthenticated & access_manager('r')
-    ]
-)
+@api_controller("/access", permissions=[IsAuthenticated & access_manager("read")])
 class PermissionController(ControllerBase):
     """
     Contrôleur pour la gestion des permissions, rôles et groupes.
     """
+
     service = PermissionService()
 
-    @http_get('/scopes', response=List[str])
+    @http_get('/scopes', response=List[schemas.ScopeSchema])
     def list_scopes(self):
-        return getattr(settings, 'ACCESS_SCOPES', [])
+        """Liste tous les scopes avec leurs labels (affichage frontend)."""
+        raw = getattr(settings, 'ACCESS_SCOPES', [])
+        result: list[dict] = []
+        for entry in raw:
+            if isinstance(entry, dict):
+                result.append({
+                    "key": entry["key"],
+                    "label": str(entry["label"]) if entry.get("label") else str(entry["key"]),
+                })
+            else:
+                result.append({"key": str(entry), "label": str(entry)})
+        return result
+
+    @http_get("/scopes/{scope}/actions", response=schemas.ScopeActionsResponseSchema)
+    def list_scope_actions(self, scope: str):
+        """
+        Liste les actions disponibles pour un scope avec leurs labels traduits.
+        Utile pour le frontend (affichage des actions dans la langue configurée).
+        """
+        labels = get_scope_actions_labels(scope)
+        return {
+            "scope": scope,
+            "actions": [{"key": key, "label": label} for key, label in labels.items()],
+        }
 
     @http_get("/roles", response=List[schemas.RoleSchema])
     def list_roles(self):
@@ -43,11 +63,9 @@ class PermissionController(ControllerBase):
 
     # Groupes
     @http_post(
-        "/groups", 
+        "/groups",
         response=schemas.GroupSchema,
-        permissions=[
-            IsAuthenticated & access_manager('w')
-        ]
+        permissions=[IsAuthenticated & access_manager("write")],
     )
     def create_group(self, group_data: schemas.GroupCreateSchema):
         """
@@ -56,7 +74,7 @@ class PermissionController(ControllerBase):
         return self.service.create_group(group_data)
 
     @http_get(
-        "/groups", 
+        "/groups",
         response=List[schemas.GroupSchema],
     )
     def list_groups(self, app: Optional[str] = None):
@@ -66,7 +84,7 @@ class PermissionController(ControllerBase):
         return self.service.get_groups(app)
 
     @http_get(
-        "/groups/{group_slug}", 
+        "/groups/{group_slug}",
         response=schemas.GroupSchema,
     )
     def get_group(self, group_slug: str):
@@ -76,30 +94,22 @@ class PermissionController(ControllerBase):
         return self.service.get_group(group_slug)
 
     @http_put(
-        "/groups/{group_slug}", 
+        "/groups/{group_slug}",
         response=schemas.GroupSchema,
-        permissions=[
-            IsAuthenticated & access_manager('ru')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/update")],
     )
     def update_group(self, group_slug: str, group_data: schemas.GroupUpdateSchema):
         """
         Met à jour un groupe existant.
         """
         return self.service.update_group(
-            group_slug,
-            group_data.dict(exclude_unset=True, exclude={"roles"}),
-            group_data.roles
+            group_slug, group_data.dict(exclude_unset=True, exclude={"roles"}), group_data.roles
         )
 
     @http_delete(
-        "/groups/{group_slug}", 
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('d')
-        ]
+        "/groups/{group_slug}",
+        response={204: None},
+        permissions=[IsAuthenticated & access_manager("delete")],
     )
     def delete_group(self, group_slug: str):
         """
@@ -111,9 +121,7 @@ class PermissionController(ControllerBase):
     @http_get(
         "/groups/{group_slug}/members",
         response=List[schemas.GroupMemberSchema],
-        permissions=[
-            IsAuthenticated & access_manager('r')
-        ]
+        permissions=[IsAuthenticated & access_manager("read")],
     )
     def get_group_members(self, group_slug: str):
         """
@@ -121,13 +129,11 @@ class PermissionController(ControllerBase):
         """
         return self.service.get_group_members(group_slug)
 
-    # Rôles des utilisateurs    
+    # Rôles des utilisateurs
     @http_post(
         "/users/assign-role",
         response=schemas.RoleSchema,
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def assign_role_to_user(self, data: schemas.AssignRoleSchema, request: HttpRequest):
         """
@@ -137,37 +143,27 @@ class PermissionController(ControllerBase):
             user_id=data.user_id,
             role_slug=data.role,
             scope=data.scope,
-            by_user=request.user if request.user.is_authenticated else None
+            by_user=request.user if request.user.is_authenticated else None,
         )
 
     @http_post(
-        "/users/revoke-role", 
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        "/users/revoke-role",
+        response={204: None},
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def revoke_role_from_user(self, data: schemas.RevokeRoleSchema):
         """
         Révoque un rôle d'un utilisateur.
         """
         self.service.revoke_role_from_user(
-            user_id=data.user_id,
-            role_slug=data.role,
-            scope=data.scope
+            user_id=data.user_id, role_slug=data.role, scope=data.scope
         )
         return None
 
     @http_post(
         "/users/override-grant",
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        response={204: None},
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def override_grant_for_user(self, data: schemas.OverrideGrantSchema):
         """
@@ -175,19 +171,14 @@ class PermissionController(ControllerBase):
         Si actions est vide, le grant est supprimé.
         """
         self.service.override_grant_for_user(
-            user_id=data.user_id,
-            scope=data.scope,
-            actions=data.actions,
-            role=data.role
+            user_id=data.user_id, scope=data.scope, actions=data.actions, role=data.role
         )
         return None
 
     @http_post(
         "/users/assign-group",
         response=List[schemas.RoleSchema],
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def assign_group_to_user(self, data: schemas.AssignGroupSchema, request: HttpRequest):
         """
@@ -196,36 +187,29 @@ class PermissionController(ControllerBase):
         return self.service.assign_group_to_user(
             user_id=data.user_id,
             group_slug=data.group,
-            by_user=request.user if request.user.is_authenticated else None
+            by_user=request.user if request.user.is_authenticated else None,
         )
 
     @http_post(
-        "/users/revoke-group", 
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        "/users/revoke-group",
+        response={204: None},
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def revoke_group_from_user(self, data: schemas.RevokeGroupSchema):
         """
         Révoque un groupe de rôles d'un utilisateur.
         """
-        self.service.revoke_group_from_user(
-            user_id=data.user_id,
-            group_slug=data.group
-        )
+        self.service.revoke_group_from_user(user_id=data.user_id, group_slug=data.group)
         return None
 
     @http_get(
         "/users/{user_id}/grants",
         response=List[schemas.GrantSchema],
-        permissions=[
-            IsAuthenticated & access_manager('r')
-        ]
+        permissions=[IsAuthenticated & access_manager("read")],
     )
-    def get_user_grants(self, user_id: UUID, scope: Optional[str] = None, app: Optional[str] = None):
+    def get_user_grants(
+        self, user_id: UUID, scope: Optional[str] = None, app: Optional[str] = None
+    ):
         """
         Récupère tous les grants d'un utilisateur.
         """
@@ -234,9 +218,7 @@ class PermissionController(ControllerBase):
     @http_get(
         "/users/{user_id}/groups",
         response=List[schemas.GroupSchema],
-        permissions=[
-            IsAuthenticated & access_manager('r')
-        ]
+        permissions=[IsAuthenticated & access_manager("read")],
     )
     def get_user_groups(self, user_id: UUID):
         """
@@ -245,11 +227,9 @@ class PermissionController(ControllerBase):
         return self.service.get_user_groups(user_id=user_id)
 
     @http_put(
-        "/grants/{grant_id}", 
+        "/grants/{grant_id}",
         response=schemas.GrantSchema,
-        permissions=[
-            IsAuthenticated & access_manager('ru')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/update")],
     )
     def update_grant(self, grant_id: int, grant_data: schemas.GrantUpdateSchema):
         """
@@ -259,11 +239,9 @@ class PermissionController(ControllerBase):
 
     # Role Grants
     @http_post(
-        "/role-grants", 
+        "/role-grants",
         response=schemas.RoleGrantSchema,
-        permissions=[
-            IsAuthenticated & access_manager('rw')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/write")],
     )
     def create_role_grant(self, grant_data: schemas.RoleGrantCreateSchema):
         """
@@ -272,7 +250,7 @@ class PermissionController(ControllerBase):
         return self.service.create_role_grant(grant_data)
 
     @http_get(
-        "/role-grants", 
+        "/role-grants",
         response=List[schemas.RoleGrantSchema],
     )
     def list_role_grants(self, app: Optional[str] = None):
@@ -282,11 +260,9 @@ class PermissionController(ControllerBase):
         return self.service.get_role_grants(app)
 
     @http_put(
-        "/role-grants/{grant_id}", 
+        "/role-grants/{grant_id}",
         response=schemas.RoleGrantSchema,
-        permissions=[
-            IsAuthenticated & access_manager('ru')
-        ]
+        permissions=[IsAuthenticated & access_manager("read/update")],
     )
     def update_role_grant(self, grant_id: int, grant_data: schemas.RoleGrantUpdateSchema):
         """
@@ -295,13 +271,9 @@ class PermissionController(ControllerBase):
         return self.service.update_role_grant(grant_id, grant_data)
 
     @http_delete(
-        "/role-grants/{grant_id}/", 
-        response={
-            204: None
-        },
-        permissions=[
-            IsAuthenticated & access_manager('d')
-        ]
+        "/role-grants/{grant_id}/",
+        response={204: None},
+        permissions=[IsAuthenticated & access_manager("delete")],
     )
     def delete_role_grant(self, grant_id: int):
         """

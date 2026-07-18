@@ -13,17 +13,30 @@ from oxutils.permissions.utils import str_check
 
 class ScopePermission(BasePermission):
     """
-    Permission class for checking user permissions using the string format.
+    Permission class for checking user permissions using named actions.
 
-    Format: "<scope>:<actions>" or "<scope>:<actions>:<role>?key=value"
+    Format:
+        ``<scope>:<action>``                      — single action
+        ``<scope>:<action1>/<action2>``           — AND (all actions required)
+        ``<scope>:<action1>|<action2>``           — OR (at least one action)
+        ``<scope>:<action1>/<action2>:<role>``    — AND with role filter
+        ``<scope>:<action1>|<action2>:<role>``    — OR with role filter
+        ``<scope>:<action1>/<action2>?key=value``  — with context
 
     Example:
-        @api_controller('/articles', permissions=[ScopePermission('articles:w')])
-        class ArticleController:
+        @api_controller('/orders', permissions=[ScopePermission('orders:create/approve')])
+        class OrderController:
+            # User needs create AND approve on orders
             pass
 
-        @api_controller('/articles', permissions=[ScopePermission('articles:w:editor')])
+        @api_controller('/orders', permissions=[ScopePermission('orders:create|approve')])
+        class OrderController:
+            # User needs create OR approve on orders
+            pass
+
+        @api_controller('/articles', permissions=[ScopePermission('articles:publish:editor')])
         class EditorArticleController:
+            # User needs publish via editor role on articles
             pass
     """
 
@@ -32,7 +45,10 @@ class ScopePermission(BasePermission):
         Initialize the permission checker.
 
         Args:
-            perm: Permission string in format "<scope>:<actions>" or "<scope>:<actions>:<role>?context"
+            perm: Permission string in format
+                  ``<scope>:<action1>/<action2>[:<role>][?context]`` or
+                  ``<scope>:<action1>|<action2>[:<role>][?context]``
+            ctx: Optional additional context dict (merged with query params).
         """
         self.perm = perm
         self.ctx = ctx if ctx else dict()
@@ -41,12 +57,7 @@ class ScopePermission(BasePermission):
         """
         Check if the user has the required permission.
 
-        Args:
-            request: HTTP request object
-            controller: Controller instance
-
-        Returns:
-            True if user has permission, False otherwise
+        Handles both AND (``/``) and OR (``|``) operators automatically.
         """
         return str_check(request.user, self.perm, **self.ctx)
 
@@ -55,15 +66,15 @@ class ScopeAnyPermission(BasePermission):
     """
     Permission class for checking if user has at least one of multiple permissions.
 
-    Vérifie si l'utilisateur possède au moins une des permissions fournies.
-    Utilise any_permission_check pour une vérification optimisée en une seule requête.
+    Each permission string can use ``/`` (AND) or ``|`` (OR) internally,
+    and the overall check is OR across all provided strings.
 
     Example:
-        @api_controller('/articles', permissions=[
-            ScopeAnyPermission('articles:r', 'articles:w:editor', 'articles:d:admin')
+        @api_controller('/orders', permissions=[
+            ScopeAnyPermission('orders:create|approve', 'articles:read')
         ])
-        class ArticleController:
-            # User needs either read access, OR editor write access, OR admin delete access
+        class MultiScopeController:
+            # User needs (create OR approve on orders) OR (read on articles)
             pass
     """
 
@@ -72,7 +83,7 @@ class ScopeAnyPermission(BasePermission):
         Initialize the permission checker with multiple permission strings.
 
         Args:
-            *perms: Variable number of permission strings in format "<scope>:<actions>" or "<scope>:<actions>:<role>?context"
+            *perms: Variable number of permission strings.
         """
         if not perms:
             raise ValueError("At least one permission string must be provided")
@@ -81,13 +92,6 @@ class ScopeAnyPermission(BasePermission):
     def has_permission(self, request: HttpRequest, controller: ControllerBase) -> bool:
         """
         Check if the user has at least one of the required permissions.
-
-        Args:
-            request: HTTP request object
-            controller: Controller instance
-
-        Returns:
-            True if user has at least one permission, False otherwise
         """
         from oxutils.permissions.caches import cache_any_permission_check
 
@@ -96,24 +100,26 @@ class ScopeAnyPermission(BasePermission):
 
 class ScopeAnyActionPermission(BasePermission):
     """
-    Permission class for checking if user has at least one of multiple actions on a scope.
+    Permission class for checking if user has at least one of multiple actions
+    on a **single scope** (OR semantics).
 
-    Vérifie si l'utilisateur possède au moins une des actions requises pour un scope donné.
-    La chaîne d'actions contient plusieurs actions dont au moins une est requise.
+    This class forces OR semantics regardless of the separator in the string.
+    Use ``ScopePermission`` with ``|`` separator if you want inline OR,
+    or this class if you prefer explicit semantics.
 
     Example:
-        @api_controller('/articles', permissions=[
-            ScopeAnyActionPermission('articles:rwd')
+        @api_controller('/orders', permissions=[
+            ScopeAnyActionPermission('orders:create/approve')
         ])
-        class ArticleController:
-            # User needs read OR write OR delete access on articles
+        class OrderController:
+            # User needs create OR approve on orders (OR despite '/')
             pass
 
-        @api_controller('/invoices', permissions=[
-            ScopeAnyActionPermission('invoices:rw:accountant')
+        @api_controller('/orders', permissions=[
+            ScopeAnyActionPermission('orders:create|approve:manager')
         ])
-        class InvoiceController:
-            # User needs read OR write access on invoices via accountant role
+        class ManagerOrderController:
+            # Same as above but with role filter
             pass
     """
 
@@ -122,9 +128,8 @@ class ScopeAnyActionPermission(BasePermission):
         Initialize the permission checker with a permission string.
 
         Args:
-            perm: Permission string in format "<scope>:<actions>" or "<scope>:<actions>:<role>?context"
-                  where actions contains multiple characters (e.g., 'rwd' for read OR write OR delete)
-            ctx: Optional additional context dict
+            perm: Permission string. Regardless of separator, OR is used.
+            ctx: Optional additional context dict.
         """
         if not perm:
             raise ValueError("Permission string must be provided")
@@ -134,21 +139,15 @@ class ScopeAnyActionPermission(BasePermission):
 
     def has_permission(self, request: HttpRequest, controller: ControllerBase) -> bool:
         """
-        Check if the user has at least one of the required actions.
-
-        Args:
-            request: HTTP request object
-            controller: Controller instance
-
-        Returns:
-            True if user has at least one action, False otherwise
+        Check if the user has at least one of the required actions (always OR).
         """
         from oxutils.permissions.caches import cache_any_action_check
         from oxutils.permissions.utils import parse_permission
 
-        scope, actions, role, query_context = parse_permission(self.perm)
+        scope, actions, _operator, role, query_context = parse_permission(self.perm)
         final_context = {**query_context, **self.ctx}
 
+        # Always OR regardless of the separator in the string
         return cache_any_action_check(request.user, scope, actions, role=role, **final_context)
 
 
@@ -156,44 +155,49 @@ def access_manager(actions: str):
     """
     Factory function for creating ScopePermission instances for access manager.
 
-    Builds a permission string from settings:
-    - ACCESS_MANAGER_SCOPE: The scope to check
-    - ACCESS_MANAGER_GROUP: Optional group for UserGroup assignment (used in authorization)
+    Uses settings with a default for the scope (no mandatory config):
+    - ACCESS_MANAGER_SCOPE: The scope to check (default ``"access"``)
+    - ACCESS_MANAGER_GROUP: Optional group for UserGroup assignment
     - ACCESS_MANAGER_ROLE: Optional role filter for permission checks
     - ACCESS_MANAGER_CONTEXT: Optional context dict converted to query params
 
     Args:
-        actions: Actions required (e.g., 'r', 'rw', 'rwd')
+        actions: Actions required.
+                 Use ``/`` for AND (e.g., ``'create/approve'``)
+                 or ``|`` for OR (e.g., ``'create|approve'``)
 
     Returns:
         ScopePermission instance configured with access manager settings
 
     Raises:
-        ImproperlyConfigured: If required settings are missing
+        ImproperlyConfigured: If ACCESS_MANAGER_CONTEXT is not a dict.
 
     Example:
-        @api_controller('/access', permissions=[access_manager('w')])
+        @api_controller('/access', permissions=[access_manager('write')])
         class AccessController:
             pass
+
+        @api_controller('/access', permissions=[access_manager('read/write')])
+        class AdvancedAccessController:
+            # User needs both read AND write on access scope
+            pass
     """
-    # Validate required settings
-    if not hasattr(settings, "ACCESS_MANAGER_SCOPE"):
-        raise ImproperlyConfigured(
-            "ACCESS_MANAGER_SCOPE is not defined. "
-            'Add ACCESS_MANAGER_SCOPE = "access" to your settings.'
-        )
+    # Scope defaults to "access" — the module owns this scope
+    scope = getattr(settings, "ACCESS_MANAGER_SCOPE", "access")
+    role = getattr(settings, "ACCESS_MANAGER_ROLE", None)
+    ctx = getattr(settings, "ACCESS_MANAGER_CONTEXT", None)
 
     # Build base permission string: scope:actions
-    perm = f"{settings.ACCESS_MANAGER_SCOPE}:{actions}"
+    perm = f"{scope}:{actions}"
 
     # Add role if defined and not None
-    if hasattr(settings, "ACCESS_MANAGER_ROLE") and settings.ACCESS_MANAGER_ROLE is not None:
-        perm += f":{settings.ACCESS_MANAGER_ROLE}"
+    if role is not None:
+        perm += f":{role}"
 
     # Get context if defined and not empty
     context = {}
-    if hasattr(settings, "ACCESS_MANAGER_CONTEXT") and settings.ACCESS_MANAGER_CONTEXT:
-        context = settings.ACCESS_MANAGER_CONTEXT
+    if ctx:
+        context = ctx
         if not isinstance(context, dict):
             raise ImproperlyConfigured(
                 "ACCESS_MANAGER_CONTEXT must be a dictionary. "
@@ -237,7 +241,7 @@ def extra_permissions():
 
         @api_controller(
             "/api",
-            permissions=[*extra_permissions(), ScopePermission("articles:r")],
+            permissions=[*extra_permissions(), ScopePermission("articles:read")],
         )
         class MyController:
             ...
