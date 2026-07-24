@@ -14,7 +14,7 @@ def grant_manager_access_to_owners(tenant: BaseTenant):
         tenant=tenant, is_owner=True
     )
 
-    access_scope = settings.ACCESS_MANAGER_SCOPE
+    access_scope = getattr(settings, "ACCESS_MANAGER_SCOPE", "access")
 
     # Vérifier qu'il y a des RoleGrants pour ce scope
     role_grants = list(RoleGrant.objects.filter(scope=access_scope))

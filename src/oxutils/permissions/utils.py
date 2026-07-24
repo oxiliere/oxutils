@@ -603,7 +603,7 @@ def any_permission_check(user: AbstractBaseUser, *str_perms: str) -> bool:
         return False
 
     # Construire le filtre de base pour l'utilisateur
-    base_filter = Q(user__pk=user.pk)
+    base_filter = Q(user__pk=user.pk, is_active=True)
 
     # Construire les conditions OR pour chaque permission
     permission_filters = Q()
@@ -800,8 +800,7 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
                 "slug": "admin"
             }
         ],
-        "scopes": ['users', 'articles', 'comments'],
-        "group": [
+        "groups": [
             {
                 "name": "Admins",
                 "slug": "admins",
@@ -880,7 +879,7 @@ def load_preset(*, force: bool = False) -> dict[str, int]:
             stats["roles"] += 1
 
     # Créer les groupes et peupler le cache
-    groups_data = preset.get("group", [])
+    groups_data = preset.get("groups", [])
     for group_data in groups_data:
         defaults = {"name": group_data["name"]}
         # App field is optional

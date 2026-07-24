@@ -40,6 +40,7 @@ class PermissionQuerySet(models.QuerySet):
         grant_filter = Q(
             user__pk=user.pk,
             scope=scope,
+            is_active=True,
             actions__contains=list(required_actions),
         )
         
@@ -79,6 +80,7 @@ class PermissionQuerySet(models.QuerySet):
         grant_filter = Q(
             user__pk=user.pk,
             scope=scope,
+            is_active=True,
             actions__contains=list(required_actions),
         )
         

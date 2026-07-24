@@ -23,7 +23,7 @@ Example configuration in settings.py:
 
     PERMISSION_PRESET = {
         "roles": [...],
-        "group": [...],
+        "groups": [...],
         "role_grants": [...]
     }
 """
@@ -134,14 +134,14 @@ def check_permission_settings(app_configs, **kwargs):
             )
         else:
             # Check required keys
-            required_keys = ["roles", "group", "role_grants"]
+            required_keys = ["roles", "groups", "role_grants"]
             for key in required_keys:
                 if key not in preset:
                     errors.append(
                         Error(
                             f"PERMISSION_PRESET is missing required key: {key}",
                             hint=f'Add "{key}" key to PERMISSION_PRESET',
-                            id=f"permissions.E007",
+                            id="permissions.E007",
                         )
                     )
 
@@ -206,15 +206,15 @@ def check_permission_settings(app_configs, **kwargs):
         and settings.ACCESS_MANAGER_GROUP is not None
         and hasattr(settings, "PERMISSION_PRESET")
         and isinstance(settings.PERMISSION_PRESET, dict)
-        and "group" in settings.PERMISSION_PRESET
+        and "groups" in settings.PERMISSION_PRESET
     ):
-        group_slugs = [g.get("slug") for g in settings.PERMISSION_PRESET.get("group", [])]
+        group_slugs = [g.get("slug") for g in settings.PERMISSION_PRESET.get("groups", [])]
 
         if settings.ACCESS_MANAGER_GROUP not in group_slugs:
             errors.append(
                 Error(
                     f'ACCESS_MANAGER_GROUP "{settings.ACCESS_MANAGER_GROUP}" is not in PERMISSION_PRESET groups',
-                    hint=f'Add a group with slug "{settings.ACCESS_MANAGER_GROUP}" to PERMISSION_PRESET["group"]',
+                    hint=f'Add a group with slug "{settings.ACCESS_MANAGER_GROUP}" to PERMISSION_PRESET["groups"]',
                     id="permissions.E009",
                 )
             )
@@ -257,7 +257,7 @@ def check_permission_settings(app_configs, **kwargs):
                     )
                 )
 
-        for group_data in settings.PERMISSION_PRESET.get("group", []):
+        for group_data in settings.PERMISSION_PRESET.get("groups", []):
             app = group_data.get("app")
             if app and app not in apps_list:
                 errors.append(
@@ -268,17 +268,12 @@ def check_permission_settings(app_configs, **kwargs):
                     )
                 )
 
-    # Cross-validation: scope ownership — each scope in actions must be unique across apps
+    # Cross-validation: scope ownership — each scope in actions must be unique across apps.
+    # (Conflicts between settings.PERMISSION_PRESET and app presets are already caught
+    #  by register_preset() which raises ImproperlyConfigured at startup.)
     if hasattr(settings, "PERMISSION_PRESET") and isinstance(settings.PERMISSION_PRESET, dict):
         scope_owners: dict[str, str] = {}
 
-        # Collect scopes from the base preset (settings.py)
-        base_actions = settings.PERMISSION_PRESET.get("actions", {})
-        if isinstance(base_actions, dict):
-            for scope in base_actions:
-                scope_owners[scope] = "settings.PERMISSION_PRESET"
-
-        # Collect scopes from discovered app presets
         from oxutils.permissions.presets import discover_app_presets
 
         for preset in discover_app_presets():
@@ -290,13 +285,10 @@ def check_permission_settings(app_configs, **kwargs):
                 if scope in scope_owners:
                     errors.append(
                         Error(
-                            f'Scope "{scope}" is already owned by "{scope_owners[scope]}". '
-                            f'App "{app_label}" cannot redefine it.',
-                            hint=(
-                                f"Each scope must be owned by exactly one app. "
-                                f'Remove the scope "{scope}" from app "{app_label}" '
-                                f"or use a different scope name."
-                            ),
+                            f'Scope "{scope}" is defined in both '
+                            f'"{scope_owners[scope]}" and "{app_label}". '
+                            f'Each scope must be owned by exactly one app.',
+                            hint=f'Remove the scope "{scope}" from one of the apps.',
                             id="permissions.E022",
                         )
                     )
@@ -316,7 +308,7 @@ def check_permission_settings(app_configs, **kwargs):
                 break
 
         if not has_app_attr:
-            for group_data in settings.PERMISSION_PRESET.get("group", []):
+            for group_data in settings.PERMISSION_PRESET.get("groups", []):
                 if group_data.get("app"):
                     has_app_attr = True
                     break
@@ -384,7 +376,7 @@ def check_permission_settings(app_configs, **kwargs):
                     )
                     continue
                 try:
-                    cls = import_string(path)
+                    import_string(path)
                 except ImportError:
                     errors.append(
                         Error(

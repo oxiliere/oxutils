@@ -5,8 +5,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: oxutils 0.5.0\n"
-"Report-Msgid-Bugs-To: dev@oxiliere.com\n"
-"POT-Creation-Date: 2026-07-18 00:00+0000\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-24 20:23+0200\n"
 "PO-Revision-Date: 2026-07-18 00:00+0000\n"
 "Last-Translator: Oxiliere Team <dev@oxiliere.com>\n"
 "Language-Team: French\n"
@@ -16,63 +16,115 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: exceptions.py:14
+#: exceptions.py:15
 msgid "The requested role does not exist"
 msgstr "Le rôle demandé n'existe pas"
 
-#: exceptions.py:19
+#: exceptions.py:21
 msgid "The requested group does not exist"
 msgstr "Le groupe demandé n'existe pas"
 
-#: exceptions.py:24
+#: exceptions.py:27
 msgid "The requested grant does not exist"
 msgstr "Le grant demandé n'existe pas"
 
-#: exceptions.py:29
+#: exceptions.py:33
 msgid "The requested role grant does not exist"
 msgstr "Le role grant demandé n'existe pas"
 
-#: exceptions.py:34
+#: exceptions.py:39
 msgid "This role is already assigned to the user"
 msgstr "Ce rôle est déjà assigné à l'utilisateur"
 
-#: exceptions.py:39
+#: exceptions.py:45
 msgid "This group is already assigned to the user"
 msgstr "Ce groupe est déjà assigné à l'utilisateur"
 
-#: exceptions.py:44
+#: exceptions.py:51
 msgid "The provided actions are invalid"
 msgstr "Les actions fournies sont invalides"
 
-#: exceptions.py:50
+#: exceptions.py:58
 msgid "Insufficient permissions to perform this action"
 msgstr "Permissions insuffisantes pour effectuer cette action"
 
-#: exceptions.py:55
+#: exceptions.py:64
 msgid "A role grant already exists for this role and scope"
 msgstr "Un role grant existe déjà pour ce rôle et ce scope"
 
-#: exceptions.py:60
+#: exceptions.py:70
 msgid "A grant already exists for this user and scope"
 msgstr "Un grant existe déjà pour cet utilisateur et ce scope"
 
-#: services.py:310 services.py:314
-msgid "Application is not allowed"
-msgstr "L'application n'est pas autorisée"
-
-#: permissions.py (access scope actions)
+#: permissions.py:21
 msgid "Read"
 msgstr "Lire"
 
+#: permissions.py:25
 msgid "Write"
 msgstr "Écrire"
 
+#: permissions.py:29
 msgid "Update"
 msgstr "Modifier"
 
+#: permissions.py:33
 msgid "Delete"
 msgstr "Supprimer"
 
-#: permissions.py (scope labels)
+#: permissions.py:44
 msgid "Access Management"
 msgstr "Gestion des accès"
+
+#: services.py:132
+#, python-brace-format
+msgid "The role '{role_slug}' does not exist"
+msgstr "Le rôle '{role_slug}' n'existe pas"
+
+#: services.py:136 services.py:166 services.py:200 services.py:243
+#: services.py:272
+#, python-brace-format
+msgid "The user with ID {user_id} does not exist"
+msgstr "L'utilisateur avec l'ID {user_id} n'existe pas"
+
+#: services.py:239
+#, python-brace-format
+msgid "The group '{group_slug}' does not exist"
+msgstr "Le groupe '{group_slug}' n'existe pas"
+
+#: services.py:297
+#, python-brace-format
+msgid "No grant found for the user on scope '{scope}'"
+msgstr "Aucun grant trouvé pour l'utilisateur sur le scope '{scope}'"
+
+#: services.py:319
+msgid "Grant updated successfully"
+msgstr "Grant mis à jour avec succès"
+
+#: services.py:321
+msgid "Grant deleted (no remaining actions)"
+msgstr "Grant supprimé (plus d'actions)"
+
+#: services.py:333 services.py:337
+msgid "Application is not allowed"
+msgstr "L'application n'est pas autorisée"
+
+#: services.py:450
+#, python-brace-format
+msgid "Roles not found: {missing}"
+msgstr "Rôles non trouvés : {missing}"
+
+#: services.py:578 services.py:611
+#, python-brace-format
+msgid "The role '{role}' does not exist"
+msgstr "Le rôle '{role}' n'existe pas"
+
+#: services.py:622
+#, python-brace-format
+msgid "The grant with ID {grant_id} does not exist"
+msgstr "Le grant avec l'ID {grant_id} n'existe pas"
+
+#: services.py:677 services.py:729
+#, python-brace-format
+msgid "The role grant with ID {grant_id} does not exist"
+msgstr "Le role grant avec l'ID {grant_id} n'existe pas"

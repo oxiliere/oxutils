@@ -2,31 +2,32 @@ from uuid import UUID
 
 from ninja_extra import (
     api_controller,
+    http_delete,
     http_get,
     http_put,
-    http_delete,
+)
+from ninja_extra.pagination import (
+    PageNumberPaginationExtra,
+    PaginatedResponseSchema,
+    paginate,
 )
 from ninja_extra.permissions import (
     IsAuthenticated,
 )
-from ninja_extra.pagination import (
-    paginate,
-    PaginatedResponseSchema,
-    PageNumberPaginationExtra,
-)
+
 from oxutils.oxiliere.permissions import (
     IsTenantAdmin,
     IsTenantOwner,
 )
+
 from .schemas import (
-    get_tenant_user_list_schema,
-    get_tenant_user_detail_schema,
-    UpdateTenantUserSchema,
     SetAdminSchema,
     SetOwnerSchema,
+    UpdateTenantUserSchema,
+    get_tenant_user_detail_schema,
+    get_tenant_user_list_schema,
 )
 from .services import TenantUserService
-
 
 TenantUserListSchema = get_tenant_user_list_schema()
 TenantUserDetailSchema = get_tenant_user_detail_schema()
@@ -34,11 +35,10 @@ TenantUserDetailSchema = get_tenant_user_detail_schema()
 service = TenantUserService()
 
 
-@api_controller('/users')
+@api_controller("/users")
 class UserController:
-
     @http_get(
-        '',
+        "",
         response=PaginatedResponseSchema[TenantUserListSchema],
         permissions=[IsAuthenticated, IsTenantAdmin],
     )
@@ -47,7 +47,7 @@ class UserController:
         return service.list()
 
     @http_get(
-        '/{user_id}',
+        "/{user_id}",
         response=TenantUserDetailSchema,
         permissions=[IsAuthenticated, IsTenantAdmin],
     )
@@ -55,7 +55,7 @@ class UserController:
         return service.get(user_id)
 
     @http_put(
-        '/{user_id}',
+        "/{user_id}",
         response=TenantUserDetailSchema,
         permissions=[IsAuthenticated, IsTenantOwner],
     )
@@ -63,7 +63,7 @@ class UserController:
         return service.update(user_id, payload.dict(exclude_unset=True))
 
     @http_put(
-        '/{user_id}/set-admin',
+        "/{user_id}/set-admin",
         response=TenantUserDetailSchema,
         permissions=[IsAuthenticated, IsTenantOwner],
     )
@@ -71,7 +71,7 @@ class UserController:
         return service.set_admin(user_id, payload.is_admin)
 
     @http_put(
-        '/{user_id}/set-owner',
+        "/{user_id}/set-owner",
         response=TenantUserDetailSchema,
         permissions=[IsAuthenticated, IsTenantOwner],
     )
@@ -79,7 +79,7 @@ class UserController:
         return service.set_owner(user_id, payload.is_owner)
 
     @http_delete(
-        '/{user_id}',
+        "/{user_id}",
         response={204: None},
         permissions=[IsAuthenticated, IsTenantOwner],
     )

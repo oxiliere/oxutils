@@ -33,6 +33,7 @@ no hierarchy expansion occurs (actions are treated as independent).
 
 from __future__ import annotations
 
+
 def _get_all_actions() -> dict[str, dict[str, dict]]:
     """Return all action definitions from ``PERMISSION_PRESET["actions"]``."""
     from django.conf import settings
@@ -129,10 +130,7 @@ def validate_actions_for_scope(scope: str, actions: list[str]) -> list[str]:
 
     invalid = [a for a in actions if a not in valid]
     if invalid:
-        raise ValueError(
-            f"Invalid actions for scope '{scope}': {invalid}. "
-            f"Valid actions: {valid}"
-        )
+        raise ValueError(f"Invalid actions for scope '{scope}': {invalid}. Valid actions: {valid}")
     return actions
 
 
@@ -172,7 +170,4 @@ def get_scope_actions_labels(scope: str) -> dict[str, str]:
     Returns:
         Dict mapping action key → translated label.
     """
-    return {
-        action: get_action_label(scope, action)
-        for action in get_valid_actions(scope)
-    }
+    return {action: get_action_label(scope, action) for action in get_valid_actions(scope)}

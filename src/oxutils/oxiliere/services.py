@@ -1,10 +1,10 @@
 """
 Oxiliere services — TenantUser management + Tenant lifecycle.
 """
-import structlog
-from typing import Optional
+
 from uuid import UUID
 
+import structlog
 from django.contrib.auth.models import AbstractBaseUser
 from django.db import transaction
 from django.db.models import QuerySet
@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 
 # ── TenantUserService (existing) ────────────────────────────────────
+
 
 class TenantUserService(BaseService):
     logger = logger
@@ -98,6 +99,7 @@ class TenantUserService(BaseService):
 
 # ── TenantService (new) ─────────────────────────────────────────────
 
+
 class TenantService:
     """Thin service layer for tenant lifecycle operations."""
 
@@ -127,7 +129,9 @@ class TenantService:
         tenant.save(update_fields=["status", "is_active"])
 
     @staticmethod
-    def add_user(tenant, user: AbstractBaseUser, is_owner: bool = False, is_admin: bool = False) -> None:
+    def add_user(
+        tenant, user: AbstractBaseUser, is_owner: bool = False, is_admin: bool = False
+    ) -> None:
         tenant.add_user(user, is_owner=is_owner, is_admin=is_admin)
 
     @staticmethod
