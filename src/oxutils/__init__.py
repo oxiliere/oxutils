@@ -18,7 +18,7 @@ Infrastructure & tooling:
     - Structured logging with correlation IDs, request metadata binding,
       and pre-built ``LOGGING`` configuration (structlog)
     - Audit log export to S3 with export-state tracking and status history
-    - Cursor-based pagination for Django Ninja APIs
+    - Paginated APIs via Django Ninja Extra (``PageNumberPaginationExtra``)
     - PDF generation via WeasyPrint (``Printer`` class and ``WeasyTemplateView``)
     - Multi-currency support with rate syncing (BCC, Open Exchange Rates)
     - Celery app with task auto-discovery and structlog integration
@@ -40,7 +40,7 @@ Other:
       image validation, bound-request detection
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 from oxutils.conf import AUDIT_MIDDLEWARE, UTILS_APPS
 from oxutils.settings import oxi_settings
