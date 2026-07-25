@@ -42,7 +42,7 @@ class Group(TimestampMixin):
         return self.slug
 
     def save(self, *args, **kwargs):
-        if self._state.adding:
+        if self._state.adding and not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 

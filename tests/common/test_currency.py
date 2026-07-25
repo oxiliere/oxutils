@@ -296,4 +296,4 @@ class TestAvailableCurrencies(TestCase):
 
     def test_available_currencies_count(self):
         """Test the number of available currencies."""
-        assert len(AVAILABLES_CURRENCIES) == 17
+        assert len(AVAILABLES_CURRENCIES) == 18

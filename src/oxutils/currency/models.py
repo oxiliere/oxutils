@@ -9,8 +9,8 @@ from oxutils.models import (
 )
 
 from .enums import CurrencySource
+from .signals import currency_sync_failed, currency_sync_succeeded
 from .utils import load_rates
-from .signals import currency_sync_succeeded, currency_sync_failed
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +20,7 @@ AVAILABLES_CURRENCIES = [
     "AUD",
     "BIF",
     "CAD",
+    "CDF",
     "CHF",
     "CNY",
     "EUR",

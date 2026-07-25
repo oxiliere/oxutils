@@ -40,7 +40,7 @@ Other:
       image validation, bound-request detection
 """
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 from oxutils.conf import AUDIT_MIDDLEWARE, UTILS_APPS
 from oxutils.settings import oxi_settings

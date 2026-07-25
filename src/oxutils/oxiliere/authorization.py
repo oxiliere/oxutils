@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import transaction
 
 from oxutils.oxiliere.models import BaseTenant
@@ -9,21 +8,28 @@ from oxutils.permissions.utils import assign_role
 
 @transaction.atomic
 def grant_manager_access_to_owners(tenant: BaseTenant):
+    """
+    Grant **all** configured permissions to every tenant owner.
+
+    Idempotent — can be called multiple times without creating duplicates.
+    Uses :func:`assign_role` which performs an upsert per (user, scope, role).
+    """
     tenant_user_model = get_tenant_user_model()
     tenant_users = tenant_user_model.objects.select_related("user").filter(
         tenant=tenant, is_owner=True
     )
 
-    access_scope = getattr(settings, "ACCESS_MANAGER_SCOPE", "access")
-
-    # Vérifier qu'il y a des RoleGrants pour ce scope
-    role_grants = list(RoleGrant.objects.filter(scope=access_scope))
+    role_grants = list(RoleGrant.objects.select_related("role").all())
 
     if not role_grants:
         return
 
     for tenant_user in tenant_users:
-        for grant in role_grants:
+        for rg in role_grants:
             assign_role(
-                user=tenant_user.user, role=grant.role, scope=grant.scope, by=None, user_group=None
+                user=tenant_user.user,
+                role=rg.role.slug,
+                scope=rg.scope,
+                by=None,
+                user_group=None,
             )

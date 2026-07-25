@@ -1,11 +1,9 @@
 from functools import wraps
+
 import structlog
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest
-
 from ninja_jwt.exceptions import InvalidToken
-
-
 
 logger = structlog.getLogger("django")
 User = get_user_model()
@@ -26,11 +24,13 @@ def load_user(f):
             # self.request.user will be the complete user object
             pass
     """
+
     @wraps(f)
     def wrapper(self, *args, **kwargs):
         populate_user(self.context.request)
         res = f(self, *args, **kwargs)
         return res
+
     return wrapper
 
 
@@ -41,5 +41,5 @@ def populate_user(request: HttpRequest):
     try:
         request.user = User.objects.get(oxi_id=request.user.id)
     except User.DoesNotExist as exc:
-        logger.exception('user_not_found', oxi_id=request.user.id, message=str(exc))
-        raise InvalidToken()
+        logger.exception("user_not_found", oxi_id=request.user.id, message=str(exc))
+        raise InvalidToken() from exc

@@ -768,154 +768,172 @@ def str_check(user: AbstractBaseUser, perm: str, **context: Any) -> bool:
         return cache_check(user, scope, required, role=role, **final_context)
 
 
-def load_preset(*, force: bool = False) -> dict[str, int]:
+def load_preset(*, force: bool = False) -> dict[str, dict[str, int]]:
     """
-    Charge un preset de permissions depuis les settings Django.
-    Utilisé par la commande de management load_permission_preset.
+    Synchronise the database with ``settings.PERMISSION_PRESET``.
 
-    Par sécurité, si des rôles existent déjà en base, la fonction lève une exception
-    sauf si force=True est passé explicitement.
+    This function is **idempotent** — it can be run repeatedly without
+    creating duplicates.  Existing objects are diffed and updated when
+    their configuration changed; new objects are created.
+
+    Nothing is ever deleted (destructive operations must be done manually).
 
     Args:
-        force: Si True, permet de charger le preset même si des rôles existent déjà.
-               Par défaut False pour éviter l'écrasement accidentel.
-
-    Le preset doit être défini dans settings.PERMISSION_PRESET avec la structure suivante:
-
-    PERMISSION_PRESET = {
-        "actions": {
-            "orders": {
-                "create": {"implies": []},
-                "approve": {"implies": ["create"]},
-                "cancel": {"implies": []},
-            },
-        },
-        "roles": [
-            {
-                "name": "Accountant",
-                "slug": "accountant"
-            },
-            {
-                "name": "Admin",
-                "slug": "admin"
-            }
-        ],
-        "groups": [
-            {
-                "name": "Admins",
-                "slug": "admins",
-                "app": "my_app",
-                "roles": ["admin"]
-            },
-            {
-                "name": "Accountants",
-                "slug": "accountants",
-                "roles": ["accountant"]
-            }
-        ],
-        "role_grants": [
-            {
-                "role": "admin",
-                "scope": "users",
-                "actions": ["r", "w", "d"],
-                "context": {}
-            },
-            {
-                "role": "accountant",
-                "scope": "users",
-                "actions": ["r"],
-                "context": {}
-            }
-        ]
-    }
+        force: Ignored (kept for backward compatibility).  The function
+               always runs in sync mode now.
 
     Returns:
-        Dictionnaire avec les statistiques de création:
-        {
-            "actions": nombre d'actions enregistrées (toujours 0, car les actions sont déclaratives),
-            "roles": nombre de rôles créés,
-            "groups": nombre de groupes créés,
-            "role_grants": nombre de role_grants créés
-        }
+        Dict with per-entity statistics::
+
+            {
+                "roles":     {"created": N, "updated": N},
+                "groups":    {"created": N, "updated": N},
+                "role_grants": {"created": N, "updated": N},
+            }
 
     Raises:
-        AttributeError: Si PERMISSION_PRESET n'est pas défini dans settings
-        KeyError: Si une clé requise est manquante dans le preset
-        PermissionError: Si des rôles existent déjà et force=False
+        AttributeError: If ``PERMISSION_PRESET`` is not defined.
+        KeyError: If a required key is missing in the preset.
+        ValueError: If a referenced role does not exist.
     """
     from django.conf import settings
 
-    # Récupérer le preset depuis les settings
     preset = getattr(settings, "PERMISSION_PRESET", None)
     if preset is None:
-        raise AttributeError("PERMISSION_PRESET n'est pas défini dans les settings Django")
+        raise AttributeError("PERMISSION_PRESET is not defined in Django settings")
 
-    # Sécurité : vérifier si des rôles existent déjà
-    existing_roles_count = Role.objects.count()
-    if existing_roles_count > 0 and not force:
-        raise PermissionError(
-            f"Des rôles existent déjà en base de données ({existing_roles_count} rôle(s)). "
-            "Pour charger le preset malgré tout, utilisez l'option --force. "
-            "Attention : cela peut créer des doublons ou modifier les permissions existantes."
-        )
+    stats: dict[str, dict[str, int]] = {
+        "roles": {"created": 0, "updated": 0},
+        "groups": {"created": 0, "updated": 0},
+        "role_grants": {"created": 0, "updated": 0},
+    }
 
-    stats = {"actions": 0, "roles": 0, "groups": 0, "role_grants": 0}
-
-    # Cache local pour éviter les requêtes répétées
+    # ── local caches to avoid repeated DB round-trips ──────────────
     roles_cache: dict[str, Role] = {}
     groups_cache: dict[str, Group] = {}
 
-    # Créer les rôles et peupler le cache
-    roles_data = preset.get("roles", [])
+    # ── 1. Roles ───────────────────────────────────────────────────
+    roles_data: list[dict] = preset.get("roles", [])
     for role_data in roles_data:
+        slug = role_data["slug"]
         defaults = {"name": role_data["name"]}
-        # App field is optional
         if "app" in role_data:
             defaults["app"] = role_data["app"]
 
-        role, created = Role.objects.get_or_create(slug=role_data["slug"], defaults=defaults)
-        roles_cache[role.slug] = role
-        if created:
-            stats["roles"] += 1
+        role, created = Role.objects.get_or_create(
+            slug=slug, defaults=defaults
+        )
+        roles_cache[slug] = role
 
-    # Créer les groupes et peupler le cache
-    groups_data = preset.get("groups", [])
+        if created:
+            stats["roles"]["created"] += 1
+        else:
+            # Diff existing role — update if anything changed
+            updated = False
+            if role.name != defaults["name"]:
+                role.name = defaults["name"]
+                updated = True
+            new_app = defaults.get("app")
+            if role.app != new_app:
+                role.app = new_app
+                updated = True
+            if updated:
+                role.save(update_fields=["name", "app", "updated_at"])
+                stats["roles"]["updated"] += 1
+
+    # ── 2. Groups ──────────────────────────────────────────────────
+    groups_data: list[dict] = preset.get("groups", [])
     for group_data in groups_data:
-        defaults = {"name": group_data["name"]}
-        # App field is optional
+        slug = group_data["slug"]
+        name = group_data["name"]
+        defaults: dict = {"name": name}
         if "app" in group_data:
             defaults["app"] = group_data["app"]
-        group, created = Group.objects.get_or_create(slug=group_data["slug"], defaults=defaults)
-        groups_cache[group.slug] = group
+
+        # ── Robust lookup: get_or_create is safe now that Group.save()
+        # no longer overwrites an explicitly provided slug.
+        # If a pre-existing entry has a different slug (from the old
+        # buggy save()), it is left untouched — a new group with the
+        # correct preset slug is created alongside it.
+        group, created = Group.objects.get_or_create(
+            slug=slug, defaults=defaults
+        )
+
+        groups_cache[slug] = group
+
         if created:
-            stats["groups"] += 1
+            stats["groups"]["created"] += 1
+        else:
+            updated = False
+            if group.name != defaults["name"]:
+                group.name = defaults["name"]
+                updated = True
+            new_app = defaults.get("app")
+            if group.app != new_app:
+                group.app = new_app
+                updated = True
+            if updated:
+                group.save(update_fields=["name", "app", "updated_at"])
+                stats["groups"]["updated"] += 1
 
-        # Associer les rôles au groupe en utilisant le cache
-        role_slugs = group_data.get("roles", [])
-        for role_slug in role_slugs:
-            # Utiliser le cache au lieu de requêter la base
-            role = roles_cache.get(role_slug)
-            if role is None:
+        # ── Sync group ↔ role M2M ──────────────────────────────
+        expected_role_slugs: set[str] = set(group_data.get("roles", []))
+        # Validate all referenced roles exist
+        for role_slug in expected_role_slugs:
+            if role_slug not in roles_cache:
                 raise ValueError(
-                    f"Le rôle '{role_slug}' n'existe pas pour le groupe '{group.slug}'"
+                    f"Role '{role_slug}' referenced by group '{slug}' "
+                    f"does not exist in the preset"
                 )
-            group.roles.add(role)
 
-    # Créer les role_grants en utilisant le cache
-    role_grants_data = preset.get("role_grants", [])
+        current_role_slugs: set[str] = set(
+            group.roles.values_list("slug", flat=True)
+        )
+
+        if expected_role_slugs != current_role_slugs:
+            to_add = expected_role_slugs - current_role_slugs
+            to_remove = current_role_slugs - expected_role_slugs
+
+            if to_remove:
+                group.roles.remove(
+                    *[roles_cache[s] for s in to_remove]
+                )
+            if to_add:
+                group.roles.add(
+                    *[roles_cache[s] for s in to_add]
+                )
+
+    # ── 3. Role grants ────────────────────────────────────────────
+    role_grants_data: list[dict] = preset.get("role_grants", [])
     for rg_data in role_grants_data:
-        # Utiliser le cache au lieu de requêter la base
-        role = roles_cache.get(rg_data["role"])
+        role_slug = rg_data["role"]
+        role = roles_cache.get(role_slug)
         if role is None:
-            raise ValueError(f"Le rôle '{rg_data['role']}' n'existe pas pour le role_grant")
+            raise ValueError(
+                f"Role '{role_slug}' referenced by a role_grant "
+                f"does not exist in the preset"
+            )
 
-        # Utiliser get_or_create avec la contrainte (role, scope)
+        new_actions: list[str] = rg_data.get("actions", [])
+        new_context: dict = rg_data.get("context", {})
+
         role_grant, created = RoleGrant.objects.get_or_create(
             role=role,
             scope=rg_data["scope"],
-            defaults={"actions": rg_data.get("actions", []), "context": rg_data.get("context", {})},
+            defaults={"actions": new_actions, "context": new_context},
         )
+
         if created:
-            stats["role_grants"] += 1
+            stats["role_grants"]["created"] += 1
+        else:
+            # Diff: compare sorted actions and context
+            if (
+                sorted(role_grant.actions) != sorted(new_actions)
+                or role_grant.context != new_context
+            ):
+                role_grant.actions = new_actions
+                role_grant.context = new_context
+                role_grant.save(update_fields=["actions", "context"])
+                stats["role_grants"]["updated"] += 1
 
     return stats
