@@ -878,8 +878,8 @@ class TestModels:
     def test_group_creation(self, db_setup, editor_role):
         group = Group.objects.create(slug='test_group', name='Test Group')
         group.roles.add(editor_role)
-        # save() calls slugify(self.name) → 'test-group'
-        assert str(group) == 'test-group'
+        # save() preserves the explicitly provided slug (no longer overwrites)
+        assert str(group) == 'test_group'
 
     def test_role_grant_clean_expands(self, db_setup, editor_role):
         """Test RoleGrant.clean() expands actions based on hierarchy."""

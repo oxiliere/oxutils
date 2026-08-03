@@ -95,7 +95,12 @@ class Command(BaseCommand):
 
         with tenant_context(tenant):
             stats = load_preset()
-            print(stats)
+            self.stdout.write(
+                f"  Permissions loaded: "
+                f"roles +{stats['roles']['created']}/~{stats['roles']['updated']}, "
+                f"groups +{stats['groups']['created']}/~{stats['groups']['updated']}, "
+                f"role_grants +{stats['role_grants']['created']}/~{stats['role_grants']['updated']}"
+            )
 
         if created:
             self.stdout.write(self.style.SUCCESS(f'✓ Superuser lié au tenant système'))
