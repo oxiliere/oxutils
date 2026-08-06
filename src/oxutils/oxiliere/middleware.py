@@ -57,7 +57,7 @@ class TenantMainMiddleware(MiddlewareMixin):
         try:
             return tenant.users.select_related("user").get(user__pk=user.id, status="active")
         except ObjectDoesNotExist as exc:
-            logger.error("tenant_user_not_found", tenant_id=tenant.id, user_id=user.id, exc_info=exc)
+            logger.error("tenant_user_not_found", tenant_id=tenant.id, user_id=user.id, error=str(exc))
             if raise_exception:
                 raise ObjectDoesNotExist("tenant_user_not_found") from exc
             return None
