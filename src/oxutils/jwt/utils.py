@@ -39,7 +39,7 @@ def populate_user(request: HttpRequest):
         return
 
     try:
-        request.user = User.objects.get(oxi_id=request.user.id)
+        request.user = User.objects.get(pk=request.user.id)
     except User.DoesNotExist as exc:
         logger.exception("user_not_found", oxi_id=request.user.id, message=str(exc))
         raise InvalidToken() from exc

@@ -11,6 +11,8 @@ in the active language.
 
 from django.utils.translation import gettext_lazy as _
 
+ACCESS_APPLICATION_NAME = "access"
+
 # ── Actions used internally by the permissions module ────────────────
 # The ``access`` scope is strictly owned by ``oxutils.permissions``.
 PERMISSION_PRESET = {
