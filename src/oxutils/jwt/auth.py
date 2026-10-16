@@ -1,4 +1,3 @@
-import os
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from django.contrib.auth import SESSION_KEY, get_user_model
@@ -33,31 +32,26 @@ def get_jwks() -> Dict[str, Any]:
         Dict containing the public JWK in JWKS format.
 
     Raises:
-        ImproperlyConfigured: If jwt_verifying_key is not configured or file doesn't exist.
+        ImproperlyConfigured: If jwt_verifying_key is not configured or is not a
+            valid base64-encoded PEM string.
     """
     global _public_jwk_cache
 
-    if oxi_settings.jwt_verifying_key is None:
+    key_data = oxi_settings.jwt_verifying_key_pem
+
+    if key_data is None:
         raise ImproperlyConfigured(
             "JWT verifying key is not configured. Set OXI_JWT_VERIFYING_KEY environment variable."
         )
 
-    key_path = oxi_settings.jwt_verifying_key
-
-    if not os.path.exists(key_path):
-        raise ImproperlyConfigured(f"JWT verifying key file not found at: {key_path}")
-
     if _public_jwk_cache is None:
         try:
-            with open(key_path, "r") as f:
-                key_data = f.read()
-
             _public_jwk_cache = jwk.JWK.from_pem(key_data.encode("utf-8"))
             _public_jwk_cache.update(kid="main")
         except Exception as e:
             raise ImproperlyConfigured(
-                f"Failed to load JWT verifying key from {key_path}: {str(e)}"
-            )
+                f"Failed to load JWT verifying key: {str(e)}"
+            ) from e
 
     return {"keys": [_public_jwk_cache.export(as_dict=True)]}
 

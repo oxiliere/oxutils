@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-16
+
+### Changed
+- **JWT keys are now base64-encoded**: `OXI_JWT_SIGNING_KEY` and `OXI_JWT_VERIFYING_KEY`
+  must now contain the base64-encoded PEM contents instead of a file path.
+  Decoded PEM values are exposed via `oxi_settings.jwt_signing_key_pem` and
+  `oxi_settings.jwt_verifying_key_pem`. JWT keys are validated as base64 at startup.
+
+### Migration Guide
+If upgrading from 0.5.x:
+- Replace each key path with its base64-encoded PEM contents, e.g.
+  `OXI_JWT_VERIFYING_KEY=$(base64 -w0 public_key.pem)`.
+- Where keys are wired into `NINJA_JWT`, use the decoded accessors
+  (`oxi_settings.jwt_signing_key_pem` / `oxi_settings.jwt_verifying_key_pem`).
+
 ## [0.1.10] - 2024-12-30
 
 ### Added
@@ -122,7 +137,8 @@ If upgrading from 0.1.9:
 - django-auditlog, django-structlog
 - PyJWT, jwcrypto, cryptography
 
-[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/oxiliere/oxutils/compare/v0.5.3...v0.6.0
 [0.1.10]: https://github.com/oxiliere/oxutils/compare/v0.1.9...v0.1.10
 [0.1.3]: https://github.com/oxiliere/oxutils/compare/v0.1.0...v0.1.3
 [0.1.0]: https://github.com/oxiliere/oxutils/releases/tag/v0.1.0

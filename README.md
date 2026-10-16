@@ -59,6 +59,10 @@ MIDDLEWARE = [
 ```bash
 OXI_SERVICE_NAME=my-service
 OXI_JWT_JWKS_URL=https://auth.example.com/.well-known/jwks.json
+
+# JWT keys are base64-encoded PEM contents (not file paths)
+OXI_JWT_SIGNING_KEY=$(base64 -w0 private_key.pem)
+OXI_JWT_VERIFYING_KEY=$(base64 -w0 public_key.pem)
 ```
 
 ### 3. Usage Examples

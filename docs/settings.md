@@ -13,7 +13,7 @@ OxUtils uses Pydantic settings for type-safe, validated configuration via enviro
 OXI_SERVICE_NAME=my-service
 OXI_SITE_NAME=MyApp
 OXI_SITE_DOMAIN=myapp.com
-OXI_JWT_VERIFYING_KEY=/path/to/public_key.pem
+OXI_JWT_VERIFYING_KEY=<base64-encoded public key PEM>
 OXI_LOG_FILE_PATH=logs/app.log
 ```
 
@@ -44,12 +44,16 @@ print(oxi_settings.service_name)  # 'my-service'
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `OXI_JWT_SIGNING_KEY` | string | `None` | Path to RSA private key (PEM) for signing tokens. |
-| `OXI_JWT_VERIFYING_KEY` | string | `None` | Path to RSA public key (PEM) for verifying tokens. |
+| `OXI_JWT_SIGNING_KEY` | string | `None` | Base64-encoded RSA private key (PEM) for signing tokens. |
+| `OXI_JWT_VERIFYING_KEY` | string | `None` | Base64-encoded RSA public key (PEM) for verifying tokens. |
 | `OXI_JWT_JWKS_URL` | string | `None` | Remote JWKS URL (optional, used by ninja-jwt). |
 | `OXI_JWT_ALGORITHM` | string | `'RS256'` | JWT signing algorithm. |
 | `OXI_JWT_ACCESS_TOKEN_KEY` | string | `'access'` | Token type for user access tokens. |
 | `OXI_JWT_ACCESS_TOKEN_LIFETIME` | int | `15` | Access token lifetime in minutes. |
+
+> **Note**: JWT keys are provided as **base64-encoded PEM strings**, not file paths.
+> Read the decoded PEM with `oxi_settings.jwt_signing_key_pem` and
+> `oxi_settings.jwt_verifying_key_pem`. Both values are validated at startup.
 
 ### Audit Logging
 
@@ -79,6 +83,10 @@ is_multitenant = oxi_settings.multitenancy
 jwt_algorithm = oxi_settings.jwt_algorithm
 access_lifetime = oxi_settings.jwt_access_token_lifetime
 
+# JWT keys are base64-encoded in the environment. Read the decoded PEM with:
+private_pem = oxi_settings.jwt_signing_key_pem
+public_pem = oxi_settings.jwt_verifying_key_pem
+
 # Logging
 log_path = oxi_settings.log_file_path
 ```
@@ -93,9 +101,9 @@ OXI_SERVICE_NAME=myapp-dev
 OXI_SITE_NAME=MyApp Dev
 OXI_SITE_DOMAIN=localhost:8000
 
-# JWT (local keys)
-OXI_JWT_SIGNING_KEY=/path/to/keys/private_key.pem
-OXI_JWT_VERIFYING_KEY=/path/to/keys/public_key.pem
+# JWT (local keys, base64-encoded)
+OXI_JWT_SIGNING_KEY=$(base64 -w0 keys/private_key.pem)
+OXI_JWT_VERIFYING_KEY=$(base64 -w0 keys/public_key.pem)
 OXI_JWT_ALGORITHM=RS256
 
 # Logging
@@ -114,7 +122,7 @@ OXI_MULTITENANCY=True
 
 # JWT (remote JWKS)
 OXI_JWT_JWKS_URL=https://auth.myapp.com/.well-known/jwks.json
-OXI_JWT_VERIFYING_KEY=/etc/keys/public_key.pem
+OXI_JWT_VERIFYING_KEY=<base64-encoded public key PEM>
 OXI_JWT_ALGORITHM=RS256
 OXI_JWT_ACCESS_TOKEN_LIFETIME=15
 
@@ -132,11 +140,11 @@ Settings are automatically validated on application startup using Pydantic valid
 
 ### JWT Validation
 
-JWT key files are validated for existence and readability:
+JWT keys are validated on import as base64-encoded PEM strings:
 
 **Example error:**
 ```
-ValueError: JWT verifying key file not found at: /path/to/key.pem
+ValueError: JWT verifying key is not a valid base64-encoded PEM string: ...
 ```
 
 ## Best Practices
