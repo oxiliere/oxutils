@@ -6,7 +6,7 @@
 
 - Stateless JWT authentication (no database lookup)
 - RS256 algorithm (RSA public/private keys)
-- JWKS generation from PEM files with caching
+- JWKS generation from base64-encoded PEM keys with caching
 - Django Ninja integration with Bearer and Cookie auth
 - Custom TokenUser model
 - User population decorator for full user loading
@@ -19,8 +19,8 @@
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `OXI_JWT_SIGNING_KEY` | string | `None` | Path to RSA private key (PEM) for signing tokens. Required for token generation. |
-| `OXI_JWT_VERIFYING_KEY` | string | `None` | Path to RSA public key (PEM) for verifying tokens. Required for authentication. |
+| `OXI_JWT_SIGNING_KEY` | string | `None` | Base64-encoded RSA private key (PEM) for signing tokens. Required for token generation. |
+| `OXI_JWT_VERIFYING_KEY` | string | `None` | Base64-encoded RSA public key (PEM) for verifying tokens. Required for authentication. |
 | `OXI_JWT_JWKS_URL` | string | `None` | Remote JWKS URL (optional, used by ninja-jwt). |
 | `OXI_JWT_ALGORITHM` | string | `'RS256'` | JWT signing algorithm. |
 
@@ -39,9 +39,9 @@
 ### Example Configuration
 
 ```bash
-# JWT Keys
-OXI_JWT_SIGNING_KEY=/path/to/keys/private_key.pem
-OXI_JWT_VERIFYING_KEY=/path/to/keys/public_key.pem
+# JWT Keys (base64-encoded PEM contents)
+OXI_JWT_SIGNING_KEY=<base64-encoded private key PEM>
+OXI_JWT_VERIFYING_KEY=<base64-encoded public key PEM>
 OXI_JWT_ALGORITHM=RS256
 
 # Token types
@@ -144,7 +144,7 @@ def my_view(request):
 
 ## JWKS Generation
 
-The system automatically generates JWKS from the public key PEM file.
+The system automatically generates JWKS from the base64-encoded public key.
 
 ```python
 from oxutils.jwt.auth import get_jwks, clear_jwk_cache
@@ -155,6 +155,15 @@ jwks = get_jwks()
 
 # Clear cache (key rotation)
 clear_jwk_cache()
+```
+
+The raw PEM contents are available through the decoded accessors:
+
+```python
+from oxutils.settings import oxi_settings
+
+private_pem = oxi_settings.jwt_signing_key_pem
+public_pem = oxi_settings.jwt_verifying_key_pem
 ```
 
 ## Usage Examples
@@ -208,6 +217,14 @@ openssl rsa -in private_key.pem -pubout -out public_key.pem
 # Verify keys
 openssl rsa -in private_key.pem -check
 openssl rsa -pubin -in public_key.pem -text -noout
+```
+
+Then base64-encode the PEM files before putting them in the environment:
+
+```bash
+# -w0 avoids line wrapping (single-line output)
+export OXI_JWT_SIGNING_KEY=$(base64 -w0 private_key.pem)
+export OXI_JWT_VERIFYING_KEY=$(base64 -w0 public_key.pem)
 ```
 
 ## Error Handling

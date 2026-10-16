@@ -104,10 +104,12 @@ Tokens are stored as HttpOnly cookies by default. All cookie attributes are conf
 
 ```python
 # settings.py
+from oxutils.settings import oxi_settings
 
 # JWT signing (via ninja-jwt)
+# OXI_JWT_SIGNING_KEY holds a base64-encoded PEM; use the decoded accessor.
 NINJA_JWT = {
-    "SIGNING_KEY": "your-secret-key",
+    "SIGNING_KEY": oxi_settings.jwt_signing_key_pem,
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
