@@ -2,6 +2,7 @@
 Cookie token mixin with configurable security flags.
 """
 from django.conf import settings
+from ninja_jwt.settings import api_settings
 
 from oxutils.auth.constants import ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE
 
@@ -39,6 +40,7 @@ class CookieTokenMixin:
             self.context.response.set_cookie(
                 key=REFRESH_TOKEN_COOKIE,
                 value=refresh_token,
+                max_age=int(api_settings.REFRESH_TOKEN_LIFETIME.total_seconds()),
                 httponly=httponly,
                 domain=domain,
                 secure=secure,
@@ -48,6 +50,7 @@ class CookieTokenMixin:
         self.context.response.set_cookie(
             key=ACCESS_TOKEN_COOKIE,
             value=access_token,
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=httponly,
             domain=domain,
             secure=secure,

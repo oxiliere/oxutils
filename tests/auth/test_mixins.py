@@ -4,6 +4,8 @@ Tests for oxutils.auth.mixins module.
 
 from unittest.mock import Mock, patch
 
+from ninja_jwt.settings import api_settings
+
 
 def _configure_mock_settings(mock_settings, **overrides):
     """Apply settings overrides, then force-set secure defaults for absent keys."""
@@ -47,6 +49,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_any_call(
             key="access_token",
             value="access123",
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=True,
             domain="example.com",
             secure=False,
@@ -55,6 +58,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_any_call(
             key="refresh_token",
             value="refresh456",
+            max_age=int(api_settings.REFRESH_TOKEN_LIFETIME.total_seconds()),
             httponly=True,
             domain="example.com",
             secure=False,
@@ -79,6 +83,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_called_once_with(
             key="access_token",
             value="access123",
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=True,
             domain="example.com",
             secure=False,
@@ -101,6 +106,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_any_call(
             key="access_token",
             value="access123",
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=True,
             domain="example.com",
             secure=True,
@@ -163,6 +169,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_any_call(
             key="access_token",
             value="access123",
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=True,
             domain="example.com",
             secure=True,
@@ -192,6 +199,7 @@ class TestCookieTokenMixin:
         response.set_cookie.assert_any_call(
             key="access_token",
             value="access123",
+            max_age=int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
             httponly=False,
             domain="example.com",
             secure=True,

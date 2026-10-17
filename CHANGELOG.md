@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-17
+
+### Added
+- **JWT cookie max-age**: `CookieTokenMixin.set_token_cookie()` now sets `max_age` from
+  `api_settings.REFRESH_TOKEN_LIFETIME` and `api_settings.ACCESS_TOKEN_LIFETIME`, so the
+  cookie lifetime matches the token lifetime instead of defaulting to a browser session cookie.
+
 ## [0.6.0] - 2026-10-16
 
 ### Changed
@@ -137,7 +144,8 @@ If upgrading from 0.1.9:
 - django-auditlog, django-structlog
 - PyJWT, jwcrypto, cryptography
 
-[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/oxiliere/oxutils/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/oxiliere/oxutils/compare/v0.5.3...v0.6.0
 [0.1.10]: https://github.com/oxiliere/oxutils/compare/v0.1.9...v0.1.10
 [0.1.3]: https://github.com/oxiliere/oxutils/compare/v0.1.0...v0.1.3
