@@ -607,10 +607,17 @@ All password endpoints are decorated with `sensitive_post_parameters_m`, ensurin
 
 ### Token Security
 
-- Refresh tokens: **rotated** on each refresh (old JTI deleted, new one created)
+- Refresh tokens: **rotated in place** on each refresh (the JTI changes, but the
+  session row and its creation date are preserved)
 - Password reset tokens: **single-use** (deleted immediately after use)
 - All tokens are validated against the whitelist before use
-- Unknown JTIs trigger deletion of the entire session (suspicious activity)
+- An unknown JTI is rejected with `401` **without deleting the session** (a stale
+  token cannot authenticate anyway, so a concurrent refresh is not a logout)
+- Session rows are never re-created on rotation, so `JWT_ALL_AUTH_MAX_SESSIONS`
+  only counts real logins
+- `cat` records the **session creation** time (stamped once, never reset);
+  `rat` records the **last reauthentication** time (moved only when the user
+  explicitly re-proves their identity)
 
 ### Cookie Security
 

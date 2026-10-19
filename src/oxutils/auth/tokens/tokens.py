@@ -18,7 +18,15 @@ class RefreshToken(DefaultRefreshToken):
 
     def __init__(self, token: Optional[Any] = None, verify: bool = True) -> None:
         super().__init__(token, verify)
+        # ``cat`` is the session creation time. It is stamped once, when the
+        # session opens, and never moves afterwards: rotating a token must not
+        # make an old session look new (the 3-day revoke guard relies on it).
         self.set_cat()  # type: ignore
+        # ``rat`` is the last time the user actually re-proved their identity.
+        # A brand-new token is "recently authenticated"; a rotated token
+        # inherits the claim from its predecessor.
+        if token is None:
+            self.set_rat()  # type: ignore
 
     def set_session(self, id_=None):
         """
@@ -39,6 +47,21 @@ class RefreshToken(DefaultRefreshToken):
 
         """
         if self.payload.get(claim, None) and not force:
+            return
+
+        if at_time is None:
+            at_time = self.current_time
+
+        self.payload[claim] = datetime_to_epoch(at_time)
+
+    def set_rat(
+        self,
+        claim: str = "rat",
+        at_time: Optional[datetime] = None,
+        force: bool = False,
+    ) -> None:
+        """Set the last reauthentication time if absent (or force it)."""
+        if self.payload.get(claim) and not force:
             return
 
         if at_time is None:
