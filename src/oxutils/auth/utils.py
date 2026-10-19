@@ -273,12 +273,17 @@ def did_recently_authenticate(request: HttpRequest) -> bool:
         return True
 
     user = get_token_user(request)
-    cat_claim = getattr(user, "token_created_at", None)
-    if not cat_claim:
+    # ``rat`` is the explicit reauthentication timestamp. Tokens minted before
+    # 0.6.2 only carry ``cat`` (their login time): falling back to it is safe,
+    # since it can never make an old token look freshly reauthenticated.
+    reauth_claim = getattr(user, "token_reauthenticated_at", None) or getattr(
+        user, "token_created_at", None
+    )
+    if not reauth_claim:
         return False
 
     try:
-        authenticated_at = datetime_from_epoch(cat_claim)
+        authenticated_at = datetime_from_epoch(reauth_claim)
         time_diff = time.time() - authenticated_at.timestamp()
         timeout = allauth_settings.REAUTHENTICATION_TIMEOUT
         return time_diff < timeout

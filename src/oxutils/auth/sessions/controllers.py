@@ -33,8 +33,13 @@ class UserSessionController(ControllerBase):
 
     def _validate_current_session_age(self, request: HttpRequest) -> None:
         """
-        Validate that the current session (the one making the request) is older than 3 days
-        This ensures account security by preventing new sessions from deleting established sessions.
+        Validate that the current session (the one making the request) is older
+        than 3 days.
+
+        The age comes from the ``cat`` claim, stamped once when the session is
+        created. Rotating the refresh token preserves it, so a long-lived
+        session keeps the ability to revoke newer ones — even after a
+        reauthentication (which only moves ``rat``).
         """
         # Get the current session token from Authorization header
 

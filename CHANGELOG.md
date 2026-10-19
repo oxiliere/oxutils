@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-19
+
+### Fixed
+- **Refresh rotation no longer resets sessions**: the whitelist row is updated
+  in place, so `created` (the session start) is preserved across rotations.
+- **Session limit is not applied to rotations**: rotating a token no longer
+  evicts another session when `JWT_ALL_AUTH_MAX_SESSIONS` is reached.
+- **Replayed tokens no longer wipe the session**: an unknown `jti` is rejected
+  with `401` instead of deleting every token of the session, which turned
+  concurrent refreshes into logouts.
+
+### Added
+- **`rat` claim**: records the last reauthentication, separately from `cat`
+  (session creation). `did_recently_authenticate()` reads `rat` and falls back
+  to `cat` for tokens issued before this release.
+
 ## [0.6.1] - 2026-10-17
 
 ### Added
@@ -144,7 +160,8 @@ If upgrading from 0.1.9:
 - django-auditlog, django-structlog
 - PyJWT, jwcrypto, cryptography
 
-[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/oxiliere/oxutils/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/oxiliere/oxutils/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/oxiliere/oxutils/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/oxiliere/oxutils/compare/v0.5.3...v0.6.0
 [0.1.10]: https://github.com/oxiliere/oxutils/compare/v0.1.9...v0.1.10

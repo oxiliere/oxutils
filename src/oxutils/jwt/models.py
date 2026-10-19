@@ -20,5 +20,9 @@ class TokenUser(DefaultTonkenUser):
         return self.token.get("cat", None)
 
     @cached_property
+    def token_reauthenticated_at(self):
+        return self.token.get("rat", None)
+
+    @cached_property
     def token_session(self):
         return self.token.get("session", None)
